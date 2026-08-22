@@ -1,0 +1,49 @@
+{
+  "summary": "Iteration 3 verification of the paced DuckDuckGo-first search_dork collector + display-path regression. Backend: 97 tests passing (10 new in test_run_guard.py, 85 existing in backend_test.py/test_social_display.py, 2 new PDF sweep). Confirmed POST /api/tenants/{AIG}/run?collector=search_dork returns 200 {ok:true} in <1s, runs in background (~230s / 13 platforms with 10s pacing), overlapping run returns 200 'A scan is already running for this tenant', guard released after completion, 404 for unknown tenant, 403 for viewer. monitoring-health shows a Search/Dorking row with status 'degraded' and the human-readable message 'Search engines returned no brand-relevant results for this server IP (datacenter IPs...)'. No new traceback / 'Task exception never retrieved' in backend.err.log during or after the run, and the API stayed fully responsive during the in-flight scan (GET /api/findings ~0.11s). Frontend: Stripe social page shows 1-25 of 69, platform dropdown lists all 13 expanded platforms, platform/Finding Type/Verification filters + search + reset (restores 69) + pagination + finding drawer + CSV export all work; all 4 role logins work; All Findings shows 211; report.pdf 200 for every tenant x module combination.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/monitoring-health", "issue": "Stale 'running' rows are never reconciled. If the backend restarts/hot-reloads mid-scan the background task dies but collector_health keeps status='running' forever (currently 2 such rows: Netflix certificate_transparency since 14:16, Welspun search_dork since 15:03). Add a startup reconciliation (mark orphaned 'running' rows as 'failed'/'stale') or a started_at-based timeout."},
+      {"endpoint": "/api/monitoring-health", "issue": "While a collector is 'running', the row still carries the PREVIOUS run's error/items_found/last_run/duration_ms (the $set for 'running' does not clear them), so the UI can show a running scan next to a stale 'Degraded' error text. Clear error/items_found on the 'running' update."},
+      {"endpoint": "/api/tenants/{id}/run", "issue": "_RUNNING_SCANS is in-process memory only, so the overlap guard is lost on restart and would not hold with >1 uvicorn worker. Acceptable today (single worker) - note only."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "MonitoringHealth table", "issue": "Orphaned 'Running' row renders with an empty Collector cell and '—' for Last Run/Found/New (row written before COLLECTOR_NAMES existed). Cosmetic consequence of the stale-running backend issue above.", "selector": "/admin/health table row", "priority": "LOW"},
+      {"component": "Finding drawer (DialogContent)", "issue": "Radix a11y console error on every drawer open: 'DialogContent requires a DialogTitle' + 'Missing Description or aria-describedby'. Add a (visually hidden) DialogTitle/Description.", "selector": "[role='dialog']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_run_guard.py",
+    "/app/backend/tests/test_pdf_regression.py",
+    "/app/backend/tests/test_social_display.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iteration3_results.xml"
+  ],
+  "action_items": [
+    "Reconcile orphaned 'running' collector_health rows (startup sweep or started_at timeout) so the Monitoring Health page never shows a permanently 'Running' collector.",
+    "Clear error/items_found/duration_ms when setting a collector row to 'running' so stale degraded messages are not shown mid-scan.",
+    "Add a hidden DialogTitle/Description to the finding drawer to remove the Radix a11y console errors."
+  ],
+  "critical_code_review_comments": [
+    "backend/server.py run_now: correct fast-return + guard, but the _RUNNING_SCANS set is process-local; if the app is ever run with multiple workers the guard silently stops working. Consider a DB-backed lock keyed on tenant_id with a TTL (also solves the stale 'running' row problem).",
+    "backend/collectors.py collect_search_dork: 220s deadline vs 13 platforms x 10s sleep + per-platform backend rotation means later platforms in DORK_TARGETS (Reddit/Pastebin/Scribd) are frequently never queried when earlier ones are slow. Consider randomising/rotating platform order across runs so coverage is even over time.",
+    "backend/collectors.py: time.sleep(10) runs inside the asyncio.to_thread worker; with several tenants scanning concurrently the default thread-pool (min(32, cpu+4)) can be occupied for minutes by pure sleeping. A bounded semaphore or asyncio-side pacing would be cheaper.",
+    "backend/server.py is 1139 lines - consider splitting routes (findings/export/admin/monitoring) into routers per the <700-line guideline."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_run_guard.py (new)",
+    "/app/backend/tests/test_pdf_regression.py (new)",
+    "/app/backend/tests/test_social_display.py (poll window 180s -> 340s to match the new ~230s paced run; test-only fix)"
+  ],
+  "success_rate": {"backend": "100% (97/97)", "frontend": "100% of tested flows (2 low-priority cosmetic/a11y notes)"},
+  "seed_data_creation": "None. Used seeded tenants (Stripe Payments, Netflix Media, AIG Hospital) and seeded accounts.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@brandshield.io/Admin@123, tadmin@brandshield.io/Tenant@123, analyst@brandshield.io/Analyst@123, viewer@brandshield.io/Viewer@123 (all verified working)",
+  "context_for_next_testing_agent": "Backend suite = tests/backend_test.py (50), tests/test_social_display.py (20), tests/test_run_guard.py (10), tests/test_pdf_regression.py (2). IMPORTANT: any write to /app/backend/** triggers uvicorn --reload, which restarts the app (login can time out for ~60s) AND kills any in-flight background scan, leaving collector_health rows stuck at status 'running'. Create/modify test files BEFORE running the suite, then wait ~15s. The AIG search_dork run takes ~230s and legitimately ends 'degraded' with items_found=0 - that is EXPECTED (free engines block this datacenter IP), do not report it. Poll health with a >=340s deadline.",
+  "rca_of_the_issue": "The only failure observed was tests/test_social_display.py::test_monitoring_health_search_dork_row, caused by the stale 180s poll window in the iteration-2 test versus the new intentionally paced ~230s run (13 platforms x 10s). Fixed in the test (340s) and it now passes. Separately, historic reportlab 'paraparser: syntax error: parse ended with 1 unclosed tags' tracebacks exist in backend.err.log from 14:06/14:15 (before this iteration); report.pdf is now 200 for every tenant x module combination tested, so it appears already resolved - flagged for awareness only."
+}

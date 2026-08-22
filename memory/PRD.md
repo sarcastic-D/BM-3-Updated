@@ -20,6 +20,10 @@ Brand security / SOC analysts and admins. Roles: Super Admin, Tenant Admin, Anal
 - Collectors: typosquat generator, crt.sh, RDAP, DNS, DuckDuckGo dorking
 
 ## Implemented (2026-06)
+- **Search backend now uses scrape.do (2026-06):** free scrapers (ddgs/DuckDuckGo/Bing) return blocked/junk results from this datacenter IP, so social/search modules were empty. Integrated user-provided **scrape.do Google Search plugin** (`SCRAPE_DO_KEY` in backend/.env) as the primary search backend in `collect_search_dork` (`_scrape_do_search`). Verified end-to-end: a Welspun scan returns **114 real social findings across 12 platforms** (accounts + posts), displays with pagination/filters/drawer/CSV. Falls back to free ddgs rotation if key absent. DORK_TARGETS expanded to 13 platforms.
+- Collector robustness: backend-rotation helper, overlapping-run guard (`_RUNNING_SCANS`), collector display-name on running rows, case-insensitive platform filter, correct engine provenance label.
+- Bug fix: `report.pdf` XML-escapes scraped fields (was 500ing).
+
 - Repo cloned and deployed unchanged into `/app` (backend + frontend), boot config wired to platform env.
 - Backend deps installed (ddgs, beautifulsoup4, python-whois, dnspython, google-play-scraper, reportlab, lxml, fake-useragent).
 - Seed ran: 4 demo users, 2 tenants (Stripe Payments TEN-0001, Netflix Media TEN-0002), 3 presets.

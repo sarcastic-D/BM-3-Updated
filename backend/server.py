@@ -522,7 +522,8 @@ def build_findings_query(params, user):
     if p.get("source") and p["source"] != "All":
         q["source"] = p["source"]
     if p.get("platform") and p["platform"] != "All":
-        q["platform"] = p["platform"]
+        # case-insensitive exact match so ?platform=instagram matches "Instagram"
+        q["platform"] = {"$regex": f"^{re.escape(p['platform'])}$", "$options": "i"}
     if p.get("severity") and p["severity"] != "All":
         q["severity"] = p["severity"]
     if p.get("status") and p["status"] != "All":

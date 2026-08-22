@@ -25,7 +25,7 @@ export default function SocialMedia() {
       module="social" screen="social" title="Social Media"
       subtitle="Impersonation & brand mentions — scored with an Impersonation Confidence classification"
       icon={Search} columns={columns}
-      platformOptions={["Instagram", "Facebook", "YouTube", "LinkedIn", "X", "Reddit", "Pastebin", "Scribd"]}
+      platformOptions={["Instagram", "Facebook", "X", "Twitter", "YouTube", "LinkedIn", "TikTok", "Threads", "Pinterest", "Telegram", "Reddit", "Pastebin", "Scribd"]}
       moduleFilters={[
         { key: "category", label: "Finding Type", facetKey: "category" },
         { key: "impersonation_classification", label: "Verification", options: ["HIGH-CONFIDENCE IMPERSONATION", "LIKELY IMPERSONATION", "SUSPICIOUS", "LIKELY LEGITIMATE", "LEGITIMATE"] },

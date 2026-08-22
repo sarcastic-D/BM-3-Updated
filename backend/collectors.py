@@ -4,6 +4,7 @@ Collectors: crt.sh (CT), RDAP, DNS, typosquat, search-dorking (DuckDuckGo).
 All functions are synchronous (run in a threadpool from async routes).
 Each returns (findings: list[dict], health: dict).
 """
+import os
 import json
 import time
 import ssl
@@ -558,10 +559,15 @@ def collect_dns(tenant):
 DORK_TARGETS = {
     "Instagram": ("instagram.com", "social", "Impersonation"),
     "X": ("x.com", "social", "Impersonation"),
+    "Twitter": ("twitter.com", "social", "Impersonation"),
     "YouTube": ("youtube.com", "social", "Suspicious Mention"),
-    "Reddit": ("reddit.com", "social", "Suspicious Mention"),
     "Facebook": ("facebook.com", "social", "Impersonation"),
     "LinkedIn": ("linkedin.com", "social", "Impersonation"),
+    "TikTok": ("tiktok.com", "social", "Impersonation"),
+    "Threads": ("threads.net", "social", "Impersonation"),
+    "Pinterest": ("pinterest.com", "social", "Suspicious Mention"),
+    "Telegram": ("t.me", "social", "Suspicious Mention"),
+    "Reddit": ("reddit.com", "social", "Suspicious Mention"),
     "Pastebin": ("pastebin.com", "social", "Data Exposure"),
     "Scribd": ("scribd.com", "social", "Data Exposure"),
 }
@@ -709,10 +715,13 @@ def impersonation_assessment(tenant, platform, handle, title, snippet, url, cate
     return conf, _classify_confidence(conf), signals
 
 
-# DuckDuckGo/ddgs frequently rate-limits a single backend from a fresh server
-# IP (returns "No results found."). We rotate across several backends and merge
-# unique results so social accounts/posts are not silently dropped.
-DDG_BACKENDS = ["google", "bing", "duckduckgo", "brave", "yahoo", "mullvad_google"]
+# Free search from a datacenter IP is unreliable: DuckDuckGo often blocks the
+# server IP entirely and other engines may return degraded/irrelevant results.
+# Per product decision we search DuckDuckGo first (free, no key) and only fall
+# back to other free backends. The strict brand-relevance filter downstream
+# discards any irrelevant results, so quality is preserved even when an engine
+# returns junk. Reliable coverage from a blocked IP requires a keyed search API.
+DDG_BACKENDS = ["duckduckgo", "bing", "google", "brave", "yahoo", "mullvad_google"]
 
 
 def _ddg_search_multi(query, host=None, max_results=25, target=8, deadline=None):
@@ -743,9 +752,35 @@ def _ddg_search_multi(query, host=None, max_results=25, target=8, deadline=None)
     return list(seen.values()), any_success
 
 
+# ── scrape.do Google Search plugin ──────────────────────────────────────────
+# Search engines block/serve junk to datacenter IPs. scrape.do proxies real
+# Google searches (residential IPs) and returns clean SerpAPI-style JSON, so we
+# reliably get the actual social accounts AND posts a human sees in a browser.
+def _scrape_do_search(query, num=20, gl="us", hl="en"):
+    """Return list of {href,title,body} from scrape.do Google plugin, or None
+    if the key isn't configured. Raises on transport/API errors."""
+    import os
+    key = os.environ.get("SCRAPE_DO_KEY")
+    if not key:
+        return None
+    params = {"token": key, "device": "desktop", "q": query,
+              "num": str(num), "gl": gl, "hl": hl}
+    r = httpx.get("https://api.scrape.do/plugin/google/search",
+                  params=params, timeout=60)
+    r.raise_for_status()
+    data = r.json()
+    out = []
+    for it in data.get("organic_results", []) or []:
+        link = it.get("link")
+        if link:
+            out.append({"href": link, "title": it.get("title") or link,
+                        "body": it.get("snippet") or ""})
+    return out
+
+
 def collect_search_dork(tenant, platforms=None, max_per=25):
     t0 = time.time()
-    deadline = t0 + 85  # overall budget so a scan run never hangs
+    deadline = t0 + 220  # overall budget; run is scheduled in the background
     findings, error, status = [], None, "healthy"
     any_backend_ok = False
     brands = [b for b in (tenant.get("brand_names") or [tenant.get("name")]) if b]
@@ -761,14 +796,21 @@ def collect_search_dork(tenant, platforms=None, max_per=25):
                 break
             q = f'{brand} site:{host}'
             try:
-                # rotate backends + merge; fall back to a broad brand+platform
-                # query if the site: dork returns nothing for this platform
-                results, ok = _ddg_search_multi(q, host=host, max_results=max_per, deadline=deadline)
-                if not results and time.time() < deadline:
-                    results, ok2 = _ddg_search_multi(
-                        f'{brand} {platform}', host=host, max_results=max_per, deadline=deadline)
-                    ok = ok or ok2
-                any_backend_ok = any_backend_ok or ok
+                use_scrape_do = bool(os.environ.get("SCRAPE_DO_KEY"))
+                if use_scrape_do:
+                    # scrape.do -> real Google results (accounts + posts)
+                    results = _scrape_do_search(q, num=max_per) or []
+                    if not results:
+                        results = _scrape_do_search(f'{brand} {platform}', num=max_per) or []
+                    any_backend_ok = True
+                else:
+                    # free fallback: rotate ddgs backends + broad query
+                    results, ok = _ddg_search_multi(q, host=host, max_results=max_per, deadline=deadline)
+                    if not results and time.time() < deadline:
+                        results, ok2 = _ddg_search_multi(
+                            f'{brand} {platform}', host=host, max_results=max_per, deadline=deadline)
+                        ok = ok or ok2
+                    any_backend_ok = any_backend_ok or ok
                 for res in results:
                         url = res.get("href") or res.get("url") or ""
                         if host not in url:
@@ -803,7 +845,8 @@ def collect_search_dork(tenant, platforms=None, max_per=25):
                             "domain": host,
                             "risk_score": score,
                             "severity": severity_from_score(score),
-                            "evidence": {"query": q, "snippet": snippet, "engine": "duckduckgo",
+                            "evidence": {"query": q, "snippet": snippet,
+                                         "engine": "scrape.do (google)" if use_scrape_do else "duckduckgo",
                                          "matched_brand": brand,
                                          "verification_signals": vsignals},
                             "entities": {
@@ -821,24 +864,31 @@ def collect_search_dork(tenant, platforms=None, max_per=25):
                             },
                             "dedupe_key": _dedupe_key(tenant["id"], module, url),
                         })
-                time.sleep(0.5)
+                # pace only the free scraper path (to avoid throttling); the
+                # scrape.do path is reliable and can run back-to-back
+                if not use_scrape_do and time.time() < deadline:
+                    time.sleep(10)
             except Exception as e:
                 error = str(e)
                 time.sleep(2)
     except Exception as e:
         error = str(e)
         status = "failed"
-    # Status reflects whether the free scrapers were reachable at all:
-    #  - healthy  : we retrieved findings
-    #  - degraded : all search backends were rate-limited / returned nothing
+    # Status reflects whether the free scrapers returned usable data:
+    #  - healthy  : we retrieved brand-relevant findings
+    #  - degraded : engines were blocked, or only returned irrelevant results
+    #               (search engines throttle/serve junk to datacenter IPs)
     if status != "failed":
         if findings:
             status = "healthy"
-        elif not any_backend_ok:
-            status = "degraded"
-            error = error or "All search backends rate-limited (no results)"
         else:
-            status = "healthy"
+            status = "degraded"
+            if not any_backend_ok:
+                error = error or ("Free search engines blocked this server IP (no results). "
+                                  "Reliable coverage needs a keyed search API or a non-datacenter IP.")
+            else:
+                error = ("Search engines returned no brand-relevant results for this server IP "
+                         "(datacenter IPs are commonly served degraded/irrelevant results).")
     return findings, {"collector": "Search/Dorking", "status": status,
                       "error": error, "items_found": len(findings),
                       "duration_ms": int((time.time() - t0) * 1000)}

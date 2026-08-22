@@ -47,8 +47,8 @@ class TestSearchDorkRun:
         assert r.json().get("ok") is True, r.text[:300]
 
     def test_monitoring_health_search_dork_row(self, admin, aig_id):
-        # background run may take up to ~90s; poll
-        row, deadline = None, time.time() + 180
+        # paced background run takes ~3-4 min (10s between 13 platforms); poll
+        row, deadline = None, time.time() + 340
         while time.time() < deadline:
             r = admin.get(f"{API}/monitoring-health", params={"tenant_id": aig_id}, timeout=120)
             assert r.status_code == 200, f"{r.status_code} {r.text[:400]}"
