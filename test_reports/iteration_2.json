@@ -1,0 +1,49 @@
+{
+  "summary": "Iteration 2 verified (a) the refactored search-dorking collector for AIG Hospital and (b) the social-findings DISPLAY path for Stripe Payments. Backend: new pytest module /app/backend/tests/test_social_display.py (23 tests) - all pass; iteration_1 regression suite backend_test.py 62/62 pass (the previously failing report.pdf test now passes, XML-escape fix confirmed). POST /api/tenants/{AIG}/run?collector=search_dork returned 200 {ok:true} in ~90ms; the background run completed in 88-90s (inside the 85s+ budget) with monitoring-health showing search_dork -> status 'healthy', items_found 0, error null, and NO traceback in backend.err.log during the run window (the only tracebacks in the log are the pre-fix report.pdf ones from 14:06-14:15, before the current code). All other AIG collectors settled to healthy (crt.sh briefly 'degraded' on a 502, expected). Frontend (Playwright, super admin): Social Media page for Stripe shows counter '1-25 of 69'; paging through 3 pages rendered exactly 69 unique rows; platform filter (Instagram -> 12, 0 off-platform rows), Finding Type filter (facet options loaded: Data Exposure/Impersonation/Mobile App/Suspicious Domain/Suspicious Mention/Typosquat), Verification filter (SUSPICIOUS -> 12) all scope correctly and Reset restores 69; search 'stripe' -> 67 of 69 (2 records legitimately have no match in title/url/domain/username); finding drawer opens and the Entities tab shows account_name, username, display_name, description, profile_url, account_type, impersonation_confidence(45)/classification(SUSPICIOUS); CSV export downloaded social.csv 16264 bytes / 70 lines (header + 69 rows); PDF export downloaded social-report.pdf 10451 bytes. Tenant switcher works (All Tenants/AIG/Netflix/Stripe); AIG social page renders a clean '0 of 0' empty state and All Findings shows its 11 real findings. All 4 role logins pass. No functional defects found; only 2 cosmetic/robustness items below.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/tenants/{tid}/run?collector=search_dork", "issue": "One-off ReadTimeout (>60s) observed when the request was issued while a previous search_dork background scan for the same tenant was still in-flight; all later calls returned 200 in ~90ms (approx 1 in 3 failure rate observed in that specific back-to-back scenario). Endpoint itself only awaits audit() + create_task, so the stall likely comes from the default asyncio thread pool being saturated by the blocking ddgs/time.sleep work in collect_search_dork (6 backends x N targets, ~90s). Consider a bounded executor for collectors or rejecting/queueing a run when one is already 'running' for that tenant."},
+      {"endpoint": "GET /api/monitoring-health", "issue": "While a run is in progress the just-started collector row is upserted with collector (display name) = null (e.g. change_watch), so the UI renders a blank Collector cell with '-'/'-' counts. Set the display name when the 'running' row is created."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "MonitoringHealth table", "issue": "Row with empty Collector name and '-' Found/New while a collector is in 'Running' state (backend sends collector: null). Cosmetic.", "selector": "/admin/health table row", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Finding detail drawer", "issues": ["Radix console error persists: 'DialogContent requires a DialogTitle for the component to be accessible for screen reader users' + missing aria-describedby. Accessibility only, no functional impact."]},
+      {"screen": "Social Media / global filter bar", "issues": ["Search input placeholder reads 'domain / url / handle' but the backend also matches title and display_name; placeholder under-describes behaviour (minor copy nit)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_social_display.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iteration2_results.xml",
+    "/app/test_reports/pytest/iteration2_full.xml"
+  ],
+  "action_items": [
+    "Optional: set the collector display name on the 'running' monitoring-health upsert so /admin/health has no blank rows.",
+    "Optional robustness: guard POST /tenants/{tid}/run against overlapping runs for the same tenant (or use a bounded thread pool) - one ReadTimeout was seen when triggering a scan while another was mid-flight.",
+    "Optional a11y: add a (visually hidden) DialogTitle to FindingDrawer's DialogContent."
+  ],
+  "critical_code_review_comments": [
+    "collectors.py _ddg_search_multi swallows every backend exception with a bare 'except Exception: pass' - the merged result is correct but there is no per-backend diagnostic, so a permanent breakage (e.g. ddgs API change) would surface only as items_found=0/'healthy'. Log the exception at debug level and record which backends answered in the health row's error/details field.",
+    "collect_search_dork reports status 'healthy' when any backend responded even with 0 findings; that is intentional per the brief, but the health row then carries no signal that the scrape was empty. Consider a distinct note ('no matches') so operators can tell an empty scrape from a real all-clear.",
+    "The whole search_dork run takes 88-90s of blocking work inside asyncio.to_thread with time.sleep(0.4-2) per backend/target; with several tenants scanning concurrently this can exhaust the default thread pool (see minor backend issue).",
+    "server.py is still >1100 lines - splitting routers (auth/tenants/findings/config) remains advisable."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_social_display.py",
+    "/app/frontend/src/components/common/FilterBar.js",
+    "/app/frontend/src/components/common/DataTable.js"
+  ],
+  "success_rate": {"backend": "100% (23/23 new + 62/62 regression)", "frontend": "100% of tested flows (pagination, 3 filters, reset, search, drawer, CSV, PDF, tenant switch)"},
+  "seed_data_creation": "None created. Triggered 2 real search_dork scans for AIG Hospital (added 0 social findings, as expected on this rate-limited IP).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "/app/memory/test_credentials.md present; all 4 accounts log in successfully. Note it lists only Stripe/Netflix - AIG Hospital (TEN-0003) should be added.",
+  "context_for_next_testing_agent": "Two pytest modules exist: tests/backend_test.py (62 tests, iteration_1) and tests/test_social_display.py (23 tests, iteration_2: search_dork run + monitoring-health polling + social pagination/filters/search/drawer/CSV/PDF + role-login regression). Run: cd /app/backend && python -m pytest tests/ -v (pytest.ini forces -n 2 --dist loadscope). The search_dork health test polls up to 180s because a run takes ~90s and the row sits in status 'running' first - do not assert on the row before it leaves 'running'. Stripe Payments has exactly 69 social findings; AIG social = 0 (expected, IP rate-limited free scraper). I added data-testids: global-filter-{category|impersonation_classification}-select on FilterBar module filters and table-total-count on DataTable pagination counter.",
+  "rca_of_the_issue": "Display path is correct: GET /api/findings?module=social&tenant_id={stripe} returns total=69 with correct pagination, and every filter subset sums back to 69, so no stored social record is dropped by the UI. The user's original 'not showing all data for AIG Hospital' report is a collection-side limitation, not a display bug: the refactored collector now rotates 6 ddgs backends and completes healthy in ~90s, but the free search backends return no host-matched results for AIG from this server IP, so items_found is 0 (documented as expected)."
+}

@@ -709,23 +709,67 @@ def impersonation_assessment(tenant, platform, handle, title, snippet, url, cate
     return conf, _classify_confidence(conf), signals
 
 
-def collect_search_dork(tenant, platforms=None, max_per=6):
+# DuckDuckGo/ddgs frequently rate-limits a single backend from a fresh server
+# IP (returns "No results found."). We rotate across several backends and merge
+# unique results so social accounts/posts are not silently dropped.
+DDG_BACKENDS = ["google", "bing", "duckduckgo", "brave", "yahoo", "mullvad_google"]
+
+
+def _ddg_search_multi(query, host=None, max_results=25, target=8, deadline=None):
+    """Query several ddgs backends, merge unique results (deduped by url).
+    Stops early once `target` host-matched results are collected or `deadline`
+    (epoch secs) passes. Returns (results, any_success)."""
+    from ddgs import DDGS
+    seen, any_success = {}, False
+    for backend in DDG_BACKENDS:
+        if deadline and time.time() > deadline:
+            break
+        try:
+            with DDGS() as ddgs:
+                res = ddgs.text(query, max_results=max_results, backend=backend)
+            any_success = True
+            for r in res:
+                url = r.get("href") or r.get("url") or ""
+                if not url or url in seen:
+                    continue
+                if host and host not in url:
+                    continue
+                seen[url] = r
+        except Exception:
+            pass  # this backend is rate-limited/unavailable, try the next
+        if len(seen) >= target:
+            break
+        time.sleep(0.4)
+    return list(seen.values()), any_success
+
+
+def collect_search_dork(tenant, platforms=None, max_per=25):
     t0 = time.time()
+    deadline = t0 + 85  # overall budget so a scan run never hangs
     findings, error, status = [], None, "healthy"
+    any_backend_ok = False
     brands = [b for b in (tenant.get("brand_names") or [tenant.get("name")]) if b]
     brand = brands[0]
     # identity-aware normalized brand terms used for strict relevance matching
     brand_terms = _brand_terms_all(tenant)
     try:
-        from ddgs import DDGS
         targets = DORK_TARGETS
         if platforms:
             targets = {k: v for k, v in DORK_TARGETS.items() if k in platforms}
         for platform, (host, module, category) in targets.items():
+            if time.time() > deadline:
+                break
             q = f'{brand} site:{host}'
             try:
-                with DDGS() as ddgs:
-                    for res in ddgs.text(q, max_results=max_per + 6):
+                # rotate backends + merge; fall back to a broad brand+platform
+                # query if the site: dork returns nothing for this platform
+                results, ok = _ddg_search_multi(q, host=host, max_results=max_per, deadline=deadline)
+                if not results and time.time() < deadline:
+                    results, ok2 = _ddg_search_multi(
+                        f'{brand} {platform}', host=host, max_results=max_per, deadline=deadline)
+                    ok = ok or ok2
+                any_backend_ok = any_backend_ok or ok
+                for res in results:
                         url = res.get("href") or res.get("url") or ""
                         if host not in url:
                             continue
@@ -777,14 +821,24 @@ def collect_search_dork(tenant, platforms=None, max_per=6):
                             },
                             "dedupe_key": _dedupe_key(tenant["id"], module, url),
                         })
-                time.sleep(1.2)
+                time.sleep(0.5)
             except Exception as e:
                 error = str(e)
-                status = "degraded"
                 time.sleep(2)
     except Exception as e:
         error = str(e)
         status = "failed"
+    # Status reflects whether the free scrapers were reachable at all:
+    #  - healthy  : we retrieved findings
+    #  - degraded : all search backends were rate-limited / returned nothing
+    if status != "failed":
+        if findings:
+            status = "healthy"
+        elif not any_backend_ok:
+            status = "degraded"
+            error = error or "All search backends rate-limited (no results)"
+        else:
+            status = "healthy"
     return findings, {"collector": "Search/Dorking", "status": status,
                       "error": error, "items_found": len(findings),
                       "duration_ms": int((time.time() - t0) * 1000)}

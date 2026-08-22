@@ -65,7 +65,7 @@ export const DataTable = ({
       </div>
       {onPageChange && (
         <div className="flex items-center justify-between border-t border-border px-3 py-2.5">
-          <span className="text-[12px] text-muted-foreground tabular-nums">
+          <span data-testid="table-total-count" className="text-[12px] text-muted-foreground tabular-nums">
             {total === 0 ? "0" : `${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, total)}`} of {total}
           </span>
           <div className="flex items-center gap-1.5">

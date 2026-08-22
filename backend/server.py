@@ -364,6 +364,17 @@ async def _upsert_finding(f, tenant_id):
     return True
 
 
+COLLECTOR_NAMES = {
+    "typosquat": "Typosquat", "certificate_transparency": "Certificate Transparency",
+    "rdap": "RDAP", "dns": "DNS", "search_dork": "Search/Dorking",
+    "app_store": "App Store", "change_watch": "Change Watch",
+}
+
+# tenants with an in-flight scan, so overlapping "Run Now" calls are skipped
+# instead of piling blocking collector work onto the thread pool
+_RUNNING_SCANS = set()
+
+
 async def _run_collectors(tenant, which=None):
     cfg = tenant.get("monitoring_config", DEFAULT_MONITORING)
     plan = []
@@ -390,7 +401,8 @@ async def _run_collectors(tenant, which=None):
             continue
         await db.collector_health.update_one(
             {"tenant_id": tenant["id"], "collector_key": cname},
-            {"$set": {"status": "running", "started_at": now_iso()}}, upsert=True)
+            {"$set": {"status": "running", "collector": COLLECTOR_NAMES.get(cname, cname),
+                      "started_at": now_iso()}}, upsert=True)
         try:
             findings, health = await asyncio.to_thread(fn, tenant)
         except Exception as e:
@@ -425,7 +437,7 @@ async def _run_change_watch(tenant, limit=20):
     error, checked, changed = None, 0, 0
     await db.collector_health.update_one(
         {"tenant_id": tenant["id"], "collector_key": "change_watch"},
-        {"$set": {"status": "running", "started_at": now_iso()}}, upsert=True)
+        {"$set": {"status": "running", "collector": "Change Watch", "started_at": now_iso()}}, upsert=True)
     try:
         findings = await db.findings.find(
             {"tenant_id": tenant["id"], "module": "fake_website"}, {"_id": 0}
@@ -471,8 +483,18 @@ async def run_now(tid: str, collector: Optional[str] = None,
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
     await audit(user, "run_collectors", tenant["name"], collector or "all")
+    if tid in _RUNNING_SCANS:
+        return {"ok": True, "message": "A scan is already running for this tenant", "tenant": tenant["name"]}
+    _RUNNING_SCANS.add(tid)
+
+    async def _bg():
+        try:
+            await _run_collectors(tenant, collector)
+        finally:
+            _RUNNING_SCANS.discard(tid)
+
     # run in background so the request returns quickly
-    asyncio.create_task(_run_collectors(tenant, collector))
+    asyncio.create_task(_bg())
     return {"ok": True, "message": "Monitoring run started", "tenant": tenant["name"]}
 
 

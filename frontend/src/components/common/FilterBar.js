@@ -173,7 +173,7 @@ export const FilterBar = ({
           <div key={mf.key} className="col-span-1 md:col-span-3">
             <Label className="mb-1 block text-[11px] text-muted-foreground">{mf.label}</Label>
             <Select value={draft[mf.key] || "All"} onValueChange={(v) => set(mf.key, v)}>
-              <SelectTrigger className="h-9 text-[13px]"><SelectValue /></SelectTrigger>
+              <SelectTrigger data-testid={`global-filter-${mf.key}-select`} className="h-9 text-[13px]"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="All">All</SelectItem>
                 {(mf.options || facetOpts(mf.facetKey || mf.key)).map((o) => {
