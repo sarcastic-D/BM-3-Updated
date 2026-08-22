@@ -1,0 +1,9 @@
+{
+  "timestamp": "2026-08-21T11:48:29.749890",
+  "test_type": "welspun_tenant_access_bug_fix",
+  "total_tests": 7,
+  "passed": 7,
+  "failed": 0,
+  "success_rate": "100.0%",
+  "failures": []
+}

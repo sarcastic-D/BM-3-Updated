@@ -1,0 +1,24 @@
+{
+  "welspun_tenant_id": "219e6ebb-bb85-4fe0-b842-9097d26b74f9",
+  "welspun_tenant_code": "TEN-0004",
+  "total_findings": 39,
+  "dashboard_stats": {
+    "critical": 0,
+    "high": 6,
+    "medium": 29,
+    "low": 4,
+    "new_domains": 6,
+    "fake_social": 31,
+    "fake_apps": 0,
+    "unauthorized_ads": 0,
+    "executive_alerts": 0,
+    "total": 39,
+    "open_cases": 0
+  },
+  "module_breakdown": {
+    "social": 33,
+    "domain_intel": 1,
+    "fake_website": 5
+  },
+  "status": "PASS"
+}

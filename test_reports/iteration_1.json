@@ -1,0 +1,43 @@
+{
+  "summary": "Smoke + regression QA of BM1 Brand Monitoring platform (fresh as-is deploy). Backend: created pytest suite (62 tests) at /app/backend/tests covering auth (4 roles), tenants CRUD, findings + filter engine, facets, CSV/PDF export, dashboard stats, monitoring health, Run Now/scheduler, saved filters, cases, users CRUD, audit logs and RBAC matrix (super_admin/tenant_admin/analyst/viewer). 61/62 passed. Frontend: Playwright walked login -> admin dashboard -> all 12 admin pages + all 11 tenant pages (zero console/page errors, no blank pages), 12-step tenant wizard, Scheduler 'Run Now' (POST /run 200, toast 'Monitoring run started', last_scan updated), All Findings table (25 rows), severity filter (Critical -> 7 rows, correctly scoped), Save Filter -> reset -> reapply saved filter, CSV export (real 36KB download with correct header row), finding detail drawer (tabs Evidence/Verification/Entities/Screenshot/Changes/Timeline), tenant switcher + tenant dashboard charts, Cases and Reports pages. RBAC verified in UI: viewer lands on /dashboard, admin portal nav hidden, /admin/* direct URLs redirect to /dashboard, no Create Case action in drawer. Only one real functional defect found: PDF report endpoint 500s.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/findings/report.pdf", "issue": "500 Internal Server Error whenever the result set contains a finding whose title/category contains XML-special characters. reportlab Paragraph() is given raw text, so titles like '<script src=\"https://js.stripe.com/v3\" - Pastebin.com' and 'Stripe & Stare (@stripeandstare)' raise ValueError: paraparser: syntax error: parse ended with 1 unclosed tags (server.py:694). Reproduced: report.pdf?tenant_id=<Stripe Payments> -> 500, Netflix Media -> 200. Blocks Reports 'Export PDF' and findings-page 'Export PDF' for the Stripe tenant and for All Tenants (unfiltered).", "priority": "HIGH"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Reports / All Findings -> Export PDF", "issue": "Button correctly shows 'PDF export failed' toast, but no PDF is ever produced for tenants containing findings with '<' or '&' in the title (backend 500). Blocked by the backend defect above.", "affected_selectors": ["[data-testid=\"global-filter-export-pdf-button\"]"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/conftest.py",
+    "/app/backend/tests/find_bad_titles.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Fix GET /api/findings/report.pdf: XML-escape every string passed to reportlab Paragraph (use xml.sax.saxutils.escape on title/category/platform/domain, or wrap the table build in try/except and fall back to plain text) — server.py ~line 690-700."
+  ],
+  "critical_code_review_comments": [
+    "server.py:694 (report_pdf) interpolates untrusted collector-scraped text straight into reportlab Paragraph markup — escape it; scraped titles routinely contain HTML.",
+    "server.py is 1116 lines; consider splitting routers (auth/tenants/findings/config) into modules.",
+    "Radix console warning on the finding drawer: DialogContent rendered without a DialogTitle (accessibility only, not a functional bug).",
+    "JWT_SECRET falls back to a hardcoded dev default; set it via env before any real use (seed super-admin creds are also public)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/conftest.py",
+    "/app/backend/tests/find_bad_titles.py"
+  ],
+  "success_rate": {"backend": "98% (61/62)", "frontend": "100% of core flows (only PDF export blocked by backend)"},
+  "seed_data_creation": "All test artifacts are TEST_ prefixed and cleaned up by the suite (TEST_QA Tenant, test_qa_user@brandshield.io, TEST_QA filter). Two leftovers from UI testing: case 'TEST_QA Case' (CASE-0001) and saved filter 'QA Critical Only' for admin@brandshield.io — harmless, delete if desired.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "/app/memory/test_credentials.md present and all 4 accounts log in successfully (admin/tadmin/analyst/viewer).",
+  "context_for_next_testing_agent": "Reusable pytest suite at /app/backend/tests (conftest.py has role-based session fixtures: admin/tadmin/analyst/viewer/anon + tenant_ids). Run: cd /app/backend && python -m pytest tests/ -v. Only known failure is TestExport::test_pdf_report (report.pdf 500 on unescaped titles). Free-scraper 'degraded' status (crt.sh, Search/Dorking) and empty paid modules (Telegram/Meta Ads/Executive) are expected by design, not bugs. Saved-filter payload field is 'conditions' (not 'filters').",
+  "rca_of_the_issue": "GET /api/findings/report.pdf builds a reportlab table with Paragraph((d.get('title') or '')[:60], cell). reportlab's paraparser treats the string as mini-XML markup, so any scraped finding title containing '<' (e.g. Pastebin dorking hits '<script src=...') or a bare '&' triggers ValueError: paraparser syntax error, which surfaces as an unhandled 500. 6 of 190 seeded findings (all in Stripe Payments) contain such characters, so PDF export fails for that tenant and for the unfiltered All-Tenants report while it succeeds for Netflix Media. Fix: escape() the values (title, category, platform, domain) before constructing Paragraph."
+}

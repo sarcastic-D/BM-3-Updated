@@ -1,0 +1,13 @@
+{
+  "timestamp": "2026-08-21T12:01:35.541766",
+  "total_tests": 52,
+  "passed": 51,
+  "failed": 1,
+  "success_rate": "98.1%",
+  "failures": [
+    {
+      "test": "Tenant Isolation - Analyst",
+      "error": "Analyst should see limited tenants, got 4"
+    }
+  ]
+}

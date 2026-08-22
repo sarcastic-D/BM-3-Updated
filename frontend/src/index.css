@@ -1,0 +1,83 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+    margin: 0;
+    font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+code, .font-mono {
+    font-family: 'IBM Plex Mono', Menlo, Monaco, Consolas, monospace;
+}
+
+@layer base {
+    :root {
+        --background: 36 33% 97%;
+        --foreground: 222 47% 11%;
+        --card: 0 0% 100%;
+        --card-foreground: 222 47% 11%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 222 47% 11%;
+        --primary: 196 84% 33%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 210 40% 96%;
+        --secondary-foreground: 222 47% 11%;
+        --muted: 210 40% 96%;
+        --muted-foreground: 215 16% 40%;
+        --accent: 174 45% 92%;
+        --accent-foreground: 196 84% 20%;
+        --destructive: 0 72% 51%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 214 24% 88%;
+        --input: 214 24% 88%;
+        --ring: 196 84% 33%;
+        --chart-1: 196 84% 33%;
+        --chart-2: 173 58% 39%;
+        --chart-3: 27 87% 55%;
+        --chart-4: 43 74% 56%;
+        --chart-5: 222 47% 35%;
+        --radius: 0.75rem;
+        --surface: 0 0% 100%;
+        --surface-2: 210 40% 98%;
+        --surface-3: 210 40% 96%;
+        --info: 199 89% 48%;
+        --info-foreground: 0 0% 100%;
+        --success: 158 64% 36%;
+        --success-foreground: 0 0% 100%;
+        --warning: 38 92% 50%;
+        --warning-foreground: 222 47% 11%;
+        --severity-critical: 0 72% 51%;
+        --severity-high: 18 88% 52%;
+        --severity-medium: 38 92% 50%;
+        --severity-low: 158 64% 36%;
+        --status-open: 199 89% 48%;
+        --status-triage: 38 92% 50%;
+        --status-resolved: 158 64% 36%;
+        --status-ignored: 215 16% 46%;
+        --health-healthy: 158 64% 36%;
+        --health-degraded: 38 92% 50%;
+        --health-failed: 0 72% 51%;
+    }
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+    body {
+        @apply bg-background text-foreground;
+    }
+}
+
+.tabular-nums { font-variant-numeric: tabular-nums; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: hsl(214 24% 82%); border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: hsl(214 24% 72%); background-clip: content-box; }

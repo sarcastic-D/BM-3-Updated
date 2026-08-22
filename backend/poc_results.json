@@ -1,0 +1,459 @@
+{
+  "generated_at": "2026-08-21T09:59:53.614626",
+  "results": {
+    "crtsh": {
+      "ok": true,
+      "count": 2076,
+      "sample": [
+        "3pimages.beta-sandbox.paypal.com",
+        "3pimages.paypal.com",
+        "3pimages.sandbox.paypal.com",
+        "a.stats.paypal.com",
+        "access.paypal.com",
+        "active-c.sandbox.paypal.com",
+        "ad.paypal.com",
+        "adjvendor.paypal.com",
+        "admin.mspartner.qa.paypal.com",
+        "admin.mspartner1int.qa.paypal.com",
+        "admin.mspartner2int.qa.paypal.com",
+        "admin.paypal.com",
+        "admin.sandbox.paypal.com",
+        "advertising.paypal.com",
+        "agw.paypal.com"
+      ],
+      "error": null,
+      "issuers_sample": [
+        "C=ES, ST=Barcelona, L=Barcelona, O=IPS Certification Authority s.l., O=general@ipsca.com C.I.F.  B-B62210695, OU=ipsCA CLASEA1 Certification Authority, CN=ipsCA CLASEA1 Certification Authority, emailAddress=general@ipsca.com",
+        "C=US, O=\"VeriSign, Inc.\", OU=VeriSign Trust Network, OU=Terms of use at https://www.verisign.com/rpa (c)05, CN=VeriSign Class 3 Secure Server CA",
+        "C=US, O=\"VeriSign, Inc.\", OU=VeriSign Trust Network, OU=Terms of use at https://www.verisign.com/rpa (c)06, CN=VeriSign Class 3 Extended Validation SSL CA",
+        "C=US, O=\"VeriSign, Inc.\", OU=VeriSign Trust Network, OU=Terms of use at https://www.verisign.com/rpa (c)06, CN=VeriSign Class 3 Extended Validation SSL SGC CA",
+        "C=US, O=\"VeriSign, Inc.\", OU=VeriSign Trust Network, OU=Terms of use at https://www.verisign.com/rpa (c)09, CN=VeriSign Class 3 Secure Server CA - G2"
+      ]
+    },
+    "rdap": {
+      "ok": true,
+      "error": null,
+      "data": {
+        "handle": "8017040_DOMAIN_COM-VRSN",
+        "status": [
+          "client delete prohibited",
+          "client transfer prohibited",
+          "client update prohibited",
+          "server delete prohibited",
+          "server transfer prohibited",
+          "server update prohibited"
+        ],
+        "registrar": "MarkMonitor Inc.",
+        "registered": "1999-07-15T05:32:11Z",
+        "expiration": "2027-07-15T05:32:11Z",
+        "last_changed": "2026-06-13T11:32:18Z",
+        "nameservers": [
+          "NS1-PCHNET.PAYPAL.COM",
+          "NS2-PCHNET.PAYPAL.COM",
+          "PDNS100.ULTRADNS.COM",
+          "PDNS100.ULTRADNS.NET"
+        ]
+      }
+    },
+    "dns": {
+      "ok": true,
+      "records": {
+        "A": [
+          "162.159.141.96",
+          "151.101.195.1",
+          "151.101.3.1"
+        ],
+        "AAAA": [],
+        "MX": [
+          "10 mx1.paypalcorp.com.",
+          "10 mx2.paypalcorp.com."
+        ],
+        "NS": [
+          "ns1-pchnet.paypal.com.",
+          "pdns100.ultradns.net.",
+          "ns2-pchnet.paypal.com.",
+          "pdns100.ultradns.com."
+        ],
+        "TXT": [
+          "\"stripe-verification=549bef27619f14f935a84c6a23492e80f49ff57a341d9ddc74d8486881cd0d8c\"",
+          "\"atlassian-domain-verification=Q8BdHlO6NYSN5njfC2rlbPQxksVfADlcxarxq4fesYJErtGKylvfcfyfwrPD/wnv\"",
+          "\"mgverify=e00c4bf7480ee22be851faa9acd20e41b8fd0f7b75b434bbe38aa257e5aae3a0\"",
+          "\"mgf84gx1cv1c759pmjqx0wnths9ss9f6\"",
+          "\"MS=ms95960309\"",
+          "\"docker-verification=2deb3c1f-56d2-4fe4-8a09-d48b7bf8a918\"",
+          "\"workplace-domain-verification=F7ezsH9uapvYDGd2VtPARy1qq9ymN6\"",
+          "\"globalsign-domain-verification=KXa3jn_dNODlTVQ4eg1Wx3vA-RrHZ2K7iLQN0vdJBx\"",
+          "\"Notion_verify_uVqjH2PpjVthR9xxfR5BZGsuYGtqb6Za4uDHPaA917v5Cg5J0rRwiATz84PWHZh8Px7vFK\"",
+          "\"adobe-idp-site-verification=11600efbec96c0e73dd8820cd33ca906ec4302aea4487d208a42a2b01806144c\"",
+          "\"v=spf1 include:pp._spf.paypal.com include:3ph1._spf.paypal.com include:3ph2._spf.paypal.com include:3ph3._spf.paypal.com include:3ph4._spf.paypal.com include:sendgrid.net include:aspmx.pardot.com ~all\"",
+          "\"intersight=6d86ec09a7c6926c6f9b8eff8ef0ef06679d84aab4999756a0920a8d430ed8ae\""
+        ]
+      },
+      "error": null
+    },
+    "typosquat": {
+      "ok": true,
+      "generated": 176,
+      "resolving": [
+        {
+          "domain": "apypal.com",
+          "ips": [
+            "69.162.80.57"
+          ]
+        },
+        {
+          "domain": "aypal.com",
+          "ips": [
+            "103.224.182.253"
+          ]
+        },
+        {
+          "domain": "baypal.com",
+          "ips": [
+            "192.99.255.31"
+          ]
+        },
+        {
+          "domain": "caypal.com",
+          "ips": [
+            "15.197.148.33",
+            "3.33.130.190"
+          ]
+        },
+        {
+          "domain": "daypal.com",
+          "ips": [
+            "76.223.54.146",
+            "13.248.169.48"
+          ]
+        },
+        {
+          "domain": "eaypal.com",
+          "ips": [
+            "103.149.92.103"
+          ]
+        },
+        {
+          "domain": "faypal.com",
+          "ips": [
+            "104.21.21.173",
+            "172.67.199.167"
+          ]
+        },
+        {
+          "domain": "gaypal.com",
+          "ips": [
+            "13.248.169.48",
+            "76.223.54.146"
+          ]
+        },
+        {
+          "domain": "haypal.com",
+          "ips": [
+            "104.209.178.191"
+          ]
+        },
+        {
+          "domain": "jaypal.com",
+          "ips": [
+            "52.20.84.62"
+          ]
+        },
+        {
+          "domain": "kaypal.com",
+          "ips": [
+            "87.118.121.191"
+          ]
+        },
+        {
+          "domain": "laypal.com",
+          "ips": [
+            "170.9.240.198"
+          ]
+        },
+        {
+          "domain": "maypal.com",
+          "ips": [
+            "43.128.7.87"
+          ]
+        },
+        {
+          "domain": "naypal.com",
+          "ips": [
+            "50.2.40.56"
+          ]
+        },
+        {
+          "domain": "oaypal.com",
+          "ips": [
+            "212.92.105.226"
+          ]
+        },
+        {
+          "domain": "paapal.com",
+          "ips": [
+            "77.247.182.247"
+          ]
+        },
+        {
+          "domain": "paaypal.com",
+          "ips": [
+            "3.33.139.32"
+          ]
+        },
+        {
+          "domain": "pacpal.com",
+          "ips": [
+            "3.33.251.168",
+            "15.197.225.128"
+          ]
+        },
+        {
+          "domain": "padpal.com",
+          "ips": [
+            "199.36.158.100"
+          ]
+        },
+        {
+          "domain": "paepal.com",
+          "ips": [
+            "99.83.176.46"
+          ]
+        },
+        {
+          "domain": "pagpal.com",
+          "ips": [
+            "76.223.54.146",
+            "13.248.169.48"
+          ]
+        },
+        {
+          "domain": "pahpal.com",
+          "ips": [
+            "99.83.176.46"
+          ]
+        },
+        {
+          "domain": "paipal.com",
+          "ips": [
+            "3.33.139.32"
+          ]
+        },
+        {
+          "domain": "pajpal.com",
+          "ips": [
+            "99.83.176.46"
+          ]
+        },
+        {
+          "domain": "palpal.com",
+          "ips": [
+            "66.96.149.17"
+          ]
+        },
+        {
+          "domain": "pampal.com",
+          "ips": [
+            "76.223.54.146",
+            "13.248.169.48"
+          ]
+        },
+        {
+          "domain": "panpal.com",
+          "ips": [
+            "208.98.35.165"
+          ]
+        },
+        {
+          "domain": "papal.com",
+          "ips": [
+            "52.43.76.153",
+            "32.186.48.85"
+          ]
+        },
+        {
+          "domain": "pappal.com",
+          "ips": [
+            "172.239.194.82",
+            "172.238.172.215",
+            "172.232.31.114"
+          ]
+        },
+        {
+          "domain": "papyal.com",
+          "ips": [
+            "37.48.72.213"
+          ]
+        },
+        {
+          "domain": "parpal.com",
+          "ips": [
+            "15.197.148.33",
+            "3.33.130.190"
+          ]
+        },
+        {
+          "domain": "paspal.com",
+          "ips": [
+            "77.42.37.92"
+          ]
+        }
+      ],
+      "error": null
+    },
+    "search_dork": {
+      "ok": true,
+      "queries": {
+        "instagram": {
+          "query": "PayPal site:instagram.com",
+          "hits": [
+            {
+              "title": "PayPal (@paypal) \u2022 Instagram photos and videos",
+              "url": "https://www.instagram.com/paypal/",
+              "snippet": "684K followers, 134 following, 213 posts \u2013 PayPal (@paypal) on Instagram: \"Make the most of your money. For support, visit the PayPal Help Center at the link in"
+            },
+            {
+              "title": "PayPal Careers (@paypal_careers) \u2022 Instagram photos and videos",
+              "url": "https://www.instagram.com/paypal_careers/",
+              "snippet": "17K followers, 56 following, 917 posts \u2013 PayPal Careers (@paypal_careers) on Instagram: \"Need support? Please visit the PayPal Help Center: paypal.com/help\""
+            },
+            {
+              "title": "PayPal UK (@paypaluk) \u2022 Instagram photos and videos",
+              "url": "https://www.instagram.com/paypaluk/",
+              "snippet": "61K Followers, 142 Following, 287 Posts - PayPal UK (@paypaluk) on Instagram: \"Don't just pay, PayPal. For support, visit the PayPal Help Centre at the link in "
+            },
+            {
+              "title": "PayPal India \ud83c\uddee\ud83c\uddf3 (@paypalindia) \u2022 Instagram photos and videos",
+              "url": "https://www.instagram.com/paypalindia/",
+              "snippet": "24K followers, 26 following, 260 posts \u2013 PayPal India \ud83c\uddee\ud83c\uddf3 (@paypalindia) on Instagram: \"Your favourite international brands accept PayPal. Pay with PayPal. #Safe"
+            },
+            {
+              "title": "PayPal M\u00e9xico (@paypalmexico)",
+              "url": "https://www.instagram.com/paypalmexico/",
+              "snippet": "See Instagram photos and videos from PayPal M\u00e9xico (@paypalmexico)"
+            },
+            {
+              "title": "payP\u00e1l (@pal_bertold) \u2022 Instagram photos and videos",
+              "url": "https://www.instagram.com/pal_bertold/",
+              "snippet": "221 Followers, 648 Following, 6 Posts - See Instagram photos and videos from payP\u00e1l (@pal_bertold)"
+            },
+            {
+              "title": "PayPal Azerbaijan (@paypalaz) \u2022 Instagram photos and videos",
+              "url": "https://www.instagram.com/paypalaz/",
+              "snippet": "62 Followers, 3 Following, 0 Posts - PayPal Azerbaijan (@paypalaz) on Instagram: \"This is life with @paypal One story at a time.\""
+            },
+            {
+              "title": "AquaArie (@paypalpaypal) \u2022 Instagram photos and videos",
+              "url": "https://www.instagram.com/paypalpaypal/?hl=en",
+              "snippet": "See Instagram photos and videos from AquaArie (@paypalpaypal)"
+            }
+          ]
+        },
+        "x": {
+          "query": "PayPal site:x.com",
+          "hits": []
+        },
+        "pastebin": {
+          "query": "PayPal site:pastebin.com",
+          "hits": []
+        },
+        "reddit": {
+          "query": "PayPal site:reddit.com",
+          "hits": []
+        },
+        "youtube": {
+          "query": "PayPal site:youtube.com",
+          "hits": [
+            {
+              "title": "What is PayPal and How Does it Work? - YouTube",
+              "url": "https://www.youtube.com/watch?v=5yzm1iagZ3s",
+              "snippet": "PayPal is an American online financial service company allowing users to transfer money or pay for items using a secure internet account. PayPal was founded ..."
+            },
+            {
+              "title": "How To Use PayPal - Beginner\u2019s Tutorial - YouTube",
+              "url": "https://www.youtube.com/watch?v=zkvercyTHzI",
+              "snippet": "If you're new to PayPal I'll walk you through everything you need to know about the platform, how to send and receive money, how to make purchases, etc.I hop..."
+            },
+            {
+              "title": "How To Use PayPal | PayPal Tutorial for Beginners (Quick & Easy Payment Gateway) - YouTube",
+              "url": "https://www.youtube.com/watch?v=dfMf5cBhc2s",
+              "snippet": "\ud83d\udee0\ufe0f My Top Recommended Tools for Small Business \ud83d\udee0\ufe0f \ud83d\udc49 https://stewartgauld.com/tools*(I'm an affiliate with some of the tools that I use and recommend, mean... Pu"
+            },
+            {
+              "title": "\ud83c\udf1f How to use the PayPal payment system \ud83c\udf1f (English) - YouTube",
+              "url": "https://www.youtube.com/watch?v=2iRZAynUWSQ",
+              "snippet": "PayPal is a widely used online payment platform that allows you to make payments for goods and services, receive payments, and send money to friends and fami..."
+            },
+            {
+              "title": "What Is Paypal And How It Works? (2026) Complete Tutorial - YouTube",
+              "url": "https://www.youtube.com/watch?v=d9RojCcT2PU",
+              "snippet": "PayPal is a widely recognized online payment platform that enables individuals and businesses to send and receive money securely over the internet. Establish..."
+            },
+            {
+              "title": "PayPal's 'buy now, pay later' surged 400% on Black Friday - YouTube",
+              "url": "https://www.youtube.com/watch?v=OS0foyvVZkQ",
+              "snippet": "Volumes on PayPal\u2019s 'buy now, pay later' platform were five times higher this Black Friday compared with a year earlier as the payments giant starts to gain ..."
+            },
+            {
+              "title": "PayPal - YouTube",
+              "url": "https://www.youtube.com/@paypal",
+              "snippet": "PayPal has been revolutionizing commerce globally for more than 25 years. Creating innovative experiences that make moving money, selling, and shopping simple, "
+            },
+            {
+              "title": "PayPal shares soar following takeover report - YouTube",
+              "url": "https://www.youtube.com/watch?v=QJJIkLhqrzI",
+              "snippet": "CNBC's MacKenzie Sigalos discusses a recent report regarding PayPal. Published: July 15, 2026"
+            }
+          ]
+        },
+        "scribd": {
+          "query": "PayPal site:scribd.com",
+          "hits": [
+            {
+              "title": "Qu\u00e9 es PayPal y c\u00f3mo funciona | PDF | Pay Pal | Industrias de servicio",
+              "url": "https://es.scribd.com/document/360437659/Que-Es-PayPal-y-Como-Funciona",
+              "snippet": "PayPal es una empresa que permite a usuarios realizar pagos y transferencias de dinero a trav\u00e9s de Internet sin compartir informaci\u00f3n financiera. Los usuarios p"
+            },
+            {
+              "title": "How To Securely Buy Verified PayPal Accounts Online | PDF | Pay Pal | Computer Security",
+              "url": "https://www.scribd.com/document/1011579934/How-to-Securely-Buy-Verified-PayPal-Accounts-Online",
+              "snippet": "Among the most widely recognized digital payment platforms is PayPal, a service that allows individuals and businesses to transfer funds quickly and securely th"
+            },
+            {
+              "title": "A Full Guide To Buy Verified PayPal Accounts in The USA | PDF | Pay Pal | Payments",
+              "url": "https://www.scribd.com/document/987468704/A-Full-Guide-to-Buy-Verified-PayPal-Accounts-in-the-USA",
+              "snippet": "A Full Guide to Buy Verified PayPal Accounts in the USA - Free download as PDF File (.pdf), Text File (.txt) or read online for free. This guide explains how to"
+            },
+            {
+              "title": "PayPal Availability and Withdrawal Guide | PDF | Career & Growth | Finance & Money Management",
+              "url": "https://www.scribd.com/document/450465435/PayPal",
+              "snippet": "PayPal can be used in many countries but not all for both sending and receiving payments. Users must verify their PayPal account and ensure it is in a country t"
+            },
+            {
+              "title": "Comisiones y Funcionamiento de PayPal | PDF | Pay Pal | Tarjeta de d\u00e9bito",
+              "url": "https://www.scribd.com/presentation/280164112/Paypal",
+              "snippet": "PayPal es un servicio gratuito para realizar pagos en l\u00ednea sin compartir informaci\u00f3n financiera. Ofrece pagos r\u00e1pidos y seguros con tarjetas de cr\u00e9dito o d\u00e9bit"
+            },
+            {
+              "title": "Buy Verified PayPal Accounts: Top 11 Sources | PDF | Pay Pal | E Commerce",
+              "url": "https://www.scribd.com/document/951471647/Discover-the-Best-11-Places-to-Purchase-Verified-PayPal-Accounts",
+              "snippet": "The document provides a comprehensive guide on the best 11 places to purchase verified PayPal accounts, emphasizing the importance of security, credibility, and"
+            },
+            {
+              "title": "PayPal User Agreement Updates 2025 | PDF | Pay Pal",
+              "url": "https://www.scribd.com/document/879969346/Policy-Updates",
+              "snippet": "The document outlines updates to the United States PayPal User Agreement and other related policies, effective July 16, 2025. Key changes include clarifications"
+            },
+            {
+              "title": "PayPal Security Check Logs | PDF",
+              "url": "https://www.scribd.com/document/737992817/PayPal-Logs",
+              "snippet": "JavaScript is disabled in your browser \u00b7 Please enable JavaScript to proceed \u00b7 A required part of this site couldn\u2019t load. This may be due to a browser extensio"
+            }
+          ]
+        }
+      },
+      "total_hits": 24,
+      "error": null
+    }
+  }
+}
