@@ -114,7 +114,8 @@ class TestRunNowGuard:
             assert len(err) > 20, f"degraded row must carry an explanatory error, got: {err!r}"
             low = err.lower()
             assert any(k in low for k in ["search engine", "blocked", "no results",
-                                          "brand-relevant", "datacenter"]), err
+                                          "brand-relevant", "datacenter",
+                                          "monthly request limit"]), err
         assert isinstance(row.get("items_found"), int)
         assert isinstance(row.get("duration_ms"), int)
         TestRunNowGuard.state["duration_ms"] = row.get("duration_ms")

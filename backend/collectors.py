@@ -756,9 +756,13 @@ def _ddg_search_multi(query, host=None, max_results=25, target=8, deadline=None)
 # Search engines block/serve junk to datacenter IPs. scrape.do proxies real
 # Google searches (residential IPs) and returns clean SerpAPI-style JSON, so we
 # reliably get the actual social accounts AND posts a human sees in a browser.
+class ScrapeDoQuotaError(Exception):
+    """Raised when scrape.do rejects the request due to plan/quota limits."""
+
+
 def _scrape_do_search(query, num=20, start=0, gl="us", hl="en"):
     """Return list of {href,title,body} from scrape.do Google plugin, or None
-    if the key isn't configured. Raises on transport/API errors."""
+    if the key isn't configured. Raises ScrapeDoQuotaError on 401/quota."""
     key = os.environ.get("SCRAPE_DO_KEY")
     if not key:
         return None
@@ -766,10 +770,43 @@ def _scrape_do_search(query, num=20, start=0, gl="us", hl="en"):
               "num": str(num), "start": str(start), "gl": gl, "hl": hl}
     r = httpx.get("https://api.scrape.do/plugin/google/search",
                   params=params, timeout=60)
+    if r.status_code in (401, 402, 429):
+        msg = ""
+        try:
+            msg = " ".join(r.json().get("Message", []))
+        except Exception:
+            msg = r.text[:160]
+        raise ScrapeDoQuotaError(
+            f"scrape.do request rejected ({r.status_code}): {msg or 'quota/plan limit'}")
     r.raise_for_status()
     data = r.json()
     out = []
     for it in data.get("organic_results", []) or []:
+        link = it.get("link")
+        if link:
+            out.append({"href": link, "title": it.get("title") or link,
+                        "body": it.get("snippet") or ""})
+    return out
+
+
+def _serper_search(query, page=1, gl="us", hl="en"):
+    """Return list of {href,title,body} from serper.dev Google Search, or None
+    if the key isn't configured. NOTE: serper's free plan rejects site:/OR dorks
+    ('Query pattern not allowed for free accounts'), so callers must pass a plain
+    keyword query. Raises ScrapeDoQuotaError on 401/402/429."""
+    key = os.environ.get("SERPER_KEY")
+    if not key:
+        return None
+    r = httpx.post("https://google.serper.dev/search",
+                   headers={"X-API-KEY": key, "Content-Type": "application/json"},
+                   json={"q": query, "gl": gl, "hl": hl, "num": 100, "page": page},
+                   timeout=60)
+    if r.status_code in (401, 402, 429):
+        raise ScrapeDoQuotaError(f"serper request rejected ({r.status_code}): {r.text[:160]}")
+    r.raise_for_status()
+    data = r.json()
+    out = []
+    for it in data.get("organic", []) or []:
         link = it.get("link")
         if link:
             out.append({"href": link, "title": it.get("title") or link,
@@ -826,34 +863,148 @@ def _build_social_finding(res, tenant, brand, brand_terms, query, engine_label):
     }
 
 
-def collect_search_dork(tenant, platforms=None, max_per=25, max_pages=4):
+_GL_BY_COUNTRY = {
+    "india": "in", "united states": "us", "usa": "us", "united kingdom": "uk",
+    "uk": "uk", "australia": "au", "canada": "ca", "germany": "de", "france": "fr",
+    "united arab emirates": "ae", "uae": "ae", "singapore": "sg", "japan": "jp",
+    "brazil": "br", "spain": "es", "italy": "it", "netherlands": "nl", "china": "cn",
+}
+
+
+def _gl_for_tenant(tenant):
+    """Google country code from the tenant's country (improves brand relevance);
+    defaults to 'in' for tld/.in-style domains, else 'us'."""
+    c = (tenant.get("country") or "").strip().lower()
+    if c in _GL_BY_COUNTRY:
+        return _GL_BY_COUNTRY[c]
+    for d in tenant.get("all_domains", []) or []:
+        if str(d).lower().endswith(".in"):
+            return "in"
+    return "us"
+
+
+# Core social platforms worth a focused top-up query when the combined dork
+# returns too few for them (Pastebin/Scribd are data-exposure, not social).
+_TOPUP_PLATFORMS = ["Instagram", "X", "Facebook", "LinkedIn", "YouTube",
+                    "TikTok", "Threads", "Pinterest", "Reddit", "Telegram"]
+
+# Platform -> keyword for the serper combined query (serper free forbids site:).
+_SERPER_KEYWORDS = {
+    "Instagram": "instagram", "X": "twitter", "Twitter": "twitter",
+    "YouTube": "youtube", "Facebook": "facebook", "LinkedIn": "linkedin",
+    "TikTok": "tiktok", "Threads": "threads", "Pinterest": "pinterest",
+    "Telegram": "telegram", "Reddit": "reddit", "Pastebin": "pastebin",
+    "Scribd": "scribd",
+}
+
+
+def collect_search_dork(tenant, platforms=None, max_per=25, max_pages=4,
+                        min_per_platform=5, max_topup=8, serper_pages=8, min_total=15):
     t0 = time.time()
     deadline = t0 + 220  # overall budget; run is scheduled in the background
     findings, error, status = [], None, "healthy"
     any_backend_ok = False
     brands = [b for b in (tenant.get("brand_names") or [tenant.get("name")]) if b]
-    brand = brands[0]
+    if not brands:
+        return findings, {"collector": "Search/Dorking", "status": "degraded",
+                          "error": "Tenant has no brand name configured.",
+                          "items_found": 0, "duration_ms": 0}
+    # Pick the actual brand for the search query, not a marketing tagline: prefer
+    # a brand name matching the primary domain label, else the fewest-word name.
+    domain_label = ""
+    doms = tenant.get("all_domains") or []
+    if doms:
+        domain_label = _norm(str(doms[0]).split(".")[0])
+    brand = next((b for b in brands if _norm(b) == domain_label and domain_label), None)
+    if not brand:
+        brand = min(brands, key=lambda b: (len(b.split()), len(b)))
     brand_terms = _brand_terms_all(tenant)
     targets = DORK_TARGETS
     if platforms:
         targets = {k: v for k, v in DORK_TARGETS.items() if k in platforms}
     use_scrape_do = bool(os.environ.get("SCRAPE_DO_KEY"))
+    use_serper = bool(os.environ.get("SERPER_KEY"))
+    gl = _gl_for_tenant(tenant)
+    seen_urls = set()
+    quota_hit = False
+
+    def _ingest(res, query, engine):
+        url = res.get("href") or res.get("url") or ""
+        if not url or url in seen_urls:
+            return
+        seen_urls.add(url)
+        f = _build_social_finding(res, tenant, brand, brand_terms, query, engine)
+        if f:
+            findings.append(f)
+
     try:
         if use_scrape_do:
-            # ── ONE combined multi-site dork, paginated ──────────────────────
-            # Covers every platform in a single query and pages through Google
-            # via `start`, so a full sweep costs only a few scrape.do requests
-            # instead of one-per-platform.
+            # ── Pass 1: ONE combined multi-site dork, paginated (cheap/broad) ──
             hosts = list(dict.fromkeys(h for (h, _, _) in targets.values()))
             site_clause = " OR ".join(f"site:{h}" for h in hosts)
             q = f"{brand} ({site_clause})"
-            seen_urls = set()
             page_num = 20
             for page in range(max_pages):
                 if time.time() > deadline:
                     break
                 try:
-                    batch = _scrape_do_search(q, num=page_num, start=page * page_num) or []
+                    batch = _scrape_do_search(q, num=page_num, start=page * page_num, gl=gl) or []
+                except ScrapeDoQuotaError as e:
+                    error, quota_hit = str(e), True
+                    break
+                except Exception as e:
+                    error = str(e)
+                    break
+                any_backend_ok = True
+                if not batch:
+                    break  # Google has no more results for this dork
+                for res in batch:
+                    _ingest(res, q, "scrape.do (google)")
+
+            # ── Pass 2: top up platforms the combined dork under-covered ──────
+            from collections import Counter
+            counts = Counter(f["platform"] for f in findings)
+            topups = 0
+            for platform in _TOPUP_PLATFORMS:
+                if quota_hit or topups >= max_topup:
+                    break
+                if platform not in targets or counts.get(platform, 0) >= min_per_platform:
+                    continue
+                if time.time() > deadline:
+                    break
+                host = DORK_TARGETS[platform][0]
+                pq = f"{brand} site:{host}"
+                try:
+                    batch = _scrape_do_search(pq, num=max_per, gl=gl) or []
+                    topups += 1
+                    any_backend_ok = True
+                    for res in batch:
+                        _ingest(res, pq, "scrape.do (google)")
+                    time.sleep(0.5)  # light pacing to avoid concurrency errors
+                except ScrapeDoQuotaError as e:
+                    error, quota_hit = str(e), True
+                    break
+                except Exception as e:
+                    error = str(e)
+
+        # ── Serper fallback: ONE combined keyword dork, paginated 1..N ────────
+        # Used when scrape.do isn't configured, is quota-blocked, or coverage is
+        # thin. serper's free plan forbids site:/OR, so we combine the brand with
+        # every SOCIAL platform keyword in a single query and filter by host.
+        # Data-exposure sites (pastebin/scribd) are excluded so all free result
+        # slots go to core social platforms.
+        if use_serper and (not use_scrape_do or quota_hit or len(findings) < min_total):
+            social_targets = [p for p in targets if p not in ("Pastebin", "Scribd")]
+            kw = " ".join(dict.fromkeys(_SERPER_KEYWORDS.get(p, p.lower()) for p in social_targets))
+            sq = f"{brand} {kw}"
+            for page in range(1, serper_pages + 1):  # pagination up to serper_pages
+                if time.time() > deadline:
+                    break
+                try:
+                    batch = _serper_search(sq, page=page, gl=gl) or []
+                except ScrapeDoQuotaError as e:
+                    error = str(e)
+                    break
                 except Exception as e:
                     error = str(e)
                     break
@@ -861,16 +1012,9 @@ def collect_search_dork(tenant, platforms=None, max_per=25, max_pages=4):
                 if not batch:
                     break
                 for res in batch:
-                    url = res.get("href") or res.get("url") or ""
-                    if not url or url in seen_urls:
-                        continue
-                    seen_urls.add(url)
-                    f = _build_social_finding(res, tenant, brand, brand_terms, q, "scrape.do (google)")
-                    if f:
-                        findings.append(f)
-                if len(batch) < page_num // 2:
-                    break  # Google is running out of results for this dork
-        else:
+                    _ingest(res, sq, "serper (google)")
+
+        if not use_scrape_do and not use_serper:
             # ── free fallback: per-platform ddgs rotation (paced) ────────────
             for platform, (host, module, category) in targets.items():
                 if time.time() > deadline:
@@ -901,9 +1045,13 @@ def collect_search_dork(tenant, platforms=None, max_per=25, max_pages=4):
     if status != "failed":
         if findings:
             status = "healthy"
+            error = None  # transient per-request errors are irrelevant once we have data
         else:
             status = "degraded"
-            if not any_backend_ok:
+            if error and ("request rejected" in error or "limit" in error.lower()):
+                error = ("scrape.do monthly request limit exceeded — wait for the new "
+                         "monthly period or upgrade your scrape.do plan to keep scanning.")
+            elif not any_backend_ok:
                 error = error or ("Search backend returned no results (blocked or unreachable). "
                                   "Reliable coverage needs a keyed search API or a non-datacenter IP.")
             else:

@@ -1,0 +1,49 @@
+{
+  "summary": "Iteration 7 — validated the new serper.dev provider path end-to-end. NEW UNIT SUITE /app/backend/tests/test_serper_provider.py (12/12 pass, all HTTP stubbed, zero quota used): _serper_search returns None without SERPER_KEY, POSTs https://google.serper.dev/search with X-API-KEY + gl/page, parses 'organic' -> href/title/body, raises ScrapeDoQuotaError on 401/402/429; collect_search_dork serper path issues exactly ONE combined KEYWORD query 'Welspun instagram twitter youtube facebook linkedin tiktok threads pinterest telegram reddit pastebin scribd' (no site:, no OR), paginates pages 1..6, stops early on an empty page, dedupes by URL, drops non-social hosts and non-brand-relevant results, labels evidence.engine='serper (google)', matched_brand='Welspun' (tagline NOT used), gl='in' for India; provider ORDER verified: scrape.do first (and its 401 quota short-circuits BOTH pagination and top-up with a single request) then serper then free ddgs only when no keys; scrape.do success skips serper entirely; serper quota/429 degrades gracefully (status 'degraded', no exception). CONFIG: keys read via os.environ only; .env values do not appear in collectors.py. LIVE (1 Welspun run, quota-conscious): POST /api/tenants/6bd8b86e-.../run?collector=search_dork -> 200 in <1s, background run finished in 9.3s, /api/monitoring-health Search/Dorking = 'healthy', items_found=9 (3 new). /api/findings?module=social now returns 26 Welspun social findings, 18 of them with engine 'serper (google)' across 5 platforms (Instagram 6, Facebook 6, YouTube 3, LinkedIn 2, X 1) — all real brand URLs (instagram.com/welspungroup, x.com/WelspunWorld, in.linkedin.com/company/welspun-living-limited, facebook.com/WelspunWorld/..., youtube.com/channel/UCn7...), every platform field matches its URL host, every serper finding shares the single combined query and matched_brand='Welspun', no MongoDB _id leaked. Relevance spot-check script confirmed 0 off-brand serper findings for Welspun (and 40 legit ones for AIG Hospitals). FRONTEND (Playwright 1920x1080, super admin): Monitoring Health table shows Welspun Search/Dorking 'Healthy' 9 items; Social Media with tenant=Welspun shows '1–25 of 26' real multi-platform rows; finding drawer Evidence tab renders Query = the combined keyword string and Engine = 'serper (google)'. REGRESSION all pass: Stripe Payments '1–25 of 69', next -> '26–50 of 69', prev back, platform filter Instagram -> 12/12 Instagram-only rows, search 'stripe' -> 67, drawer tabs Evidence/Verification/Entities/Screenshot/Changes/Timeline, Export CSV -> social.csv, Export PDF -> social-report.pdf, no error elements on any page. FULL BACKEND SUITE: 156 passed, 7 skipped (live/paid-gated), 0 failed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "collectors.collect_search_dork (provider gating)", "issue": "serper only runs when scrape.do is absent / quota-hit / returned ZERO findings (`not findings`). If scrape.do returns just 1-2 findings the serper top-up never runs, so coverage can silently stay low. Consider `len(findings) < min_total` instead of `not findings`."},
+      {"endpoint": "collectors._serper_search / serper pagination", "issue": "Page count is implicit: `range(1, max_pages + 3)` couples serper pages to the scrape.do `max_pages` default (4 -> 6). Add an explicit `serper_pages` parameter so the '5-6 pages' requirement can't drift. Also `num: 100` is sent although the free plan caps at ~10 organic/page (harmless, but misleading)."},
+      {"endpoint": "collectors.collect_search_dork (combined keyword query)", "issue": "The combined keyword query includes non-social data-exposure keywords 'pastebin scribd', which dilute the 10 organic slots/page available for the core social platforms on serper's free tier."},
+      {"endpoint": "collectors.collect_search_dork (brand selection)", "issue": "Still open from iteration 6: `min(brands, key=...)` raises ValueError if a tenant has neither brand_names nor name."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "FindingDrawer (Radix Dialog)", "issue": "Console error on every drawer open: '`DialogContent` requires a `DialogTitle` for the component to be accessible for screen reader users.' Wrap the drawer heading in DialogTitle (or VisuallyHidden).", "selector": "[data-testid=\"findings-table-row\"] -> dialog", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_serper_provider.py",
+    "/app/backend/tests/test_serper_live_welspun.py",
+    "/app/backend/tests/check_serper_result.py",
+    "/app/backend/tests/check_relevance.py",
+    "/app/test_reports/pytest/iteration7.xml"
+  ],
+  "action_items": [
+    "Optional: add DialogTitle to the finding drawer to clear the a11y console error.",
+    "Optional hardening: explicit serper_pages param; drop pastebin/scribd keywords from the serper combined query; run serper as a top-up when scrape.do yields few (not only zero) findings; guard empty brands list."
+  ],
+  "critical_code_review_comments": [
+    "backend/collectors.py is 1398 lines — split provider adapters (_scrape_do_search/_serper_search/_ddg_search_multi) and the social finding builder into separate modules.",
+    "Serper page loop breaks out on ANY non-quota exception (single transient 5xx aborts remaining pages); consider continue-with-retry for one page before aborting.",
+    "tests/test_quota_graceful.py::TestLiveGracefulDegradation asserted status=='degraded', which is now obsolete because serper makes the live run healthy; I gated it behind RUN_SERPER_LIVE=1 and relaxed it to healthy-or-graceful-degraded so the default suite no longer burns serper quota."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_serper_provider.py",
+    "/app/backend/tests/test_serper_live_welspun.py",
+    "/app/backend/tests/test_quota_graceful.py",
+    "/app/backend/tests/check_serper_result.py",
+    "/app/backend/tests/check_relevance.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "No new tenants/users. One live serper scan on Welspun TEN-0006 added 3 new social findings (total 26, 18 via serper). The default pytest run also re-ran AIG Hospitals search (existing suite) which added serper findings there.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "/app/memory/test_credentials.md — admin@brandshield.io / Admin@123 (used); all 4 role logins covered by existing pytest suites and passing.",
+  "context_for_next_testing_agent": "serper is the live provider (scrape.do quota exhausted, 401). Live serper tests are OPT-IN: RUN_SERPER_LIVE=1 pytest tests/test_serper_live_welspun.py (and TestLiveGracefulDegradation in test_quota_graceful.py). Default `pytest tests/` is quota-safe except existing AIG/Welspun suites that still trigger runs — keep an eye on serper free monthly cap. Use tests/check_serper_result.py to inspect the last run without triggering a new one. Frontend pagination controls are data-testid table-next-page/table-prev-page/table-total-count (icon-only, no accessible name).",
+  "rca_of_the_issue": "No product defect found this iteration. The one suite failure (test_quota_graceful::test_health_shows_quota_message expecting 'degraded') was a stale iteration-6 expectation: adding the serper fallback correctly turns the live Welspun run 'healthy', so the test was updated/gated rather than the app."
+}
