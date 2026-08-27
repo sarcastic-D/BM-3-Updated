@@ -23,7 +23,7 @@ def stripe_id(tenants):
 
 @pytest.fixture(scope="module")
 def aig_id(tenants):
-    t = tenants.get("AIG Hospital")
+    t = tenants.get("AIG Hospital") or tenants.get("AIG Hospitals")
     if not t:
         pytest.fail(f"AIG Hospital tenant missing. Have: {list(tenants)}")
     return t["id"]

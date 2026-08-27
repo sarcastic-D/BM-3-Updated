@@ -756,15 +756,14 @@ def _ddg_search_multi(query, host=None, max_results=25, target=8, deadline=None)
 # Search engines block/serve junk to datacenter IPs. scrape.do proxies real
 # Google searches (residential IPs) and returns clean SerpAPI-style JSON, so we
 # reliably get the actual social accounts AND posts a human sees in a browser.
-def _scrape_do_search(query, num=20, gl="us", hl="en"):
+def _scrape_do_search(query, num=20, start=0, gl="us", hl="en"):
     """Return list of {href,title,body} from scrape.do Google plugin, or None
     if the key isn't configured. Raises on transport/API errors."""
-    import os
     key = os.environ.get("SCRAPE_DO_KEY")
     if not key:
         return None
     params = {"token": key, "device": "desktop", "q": query,
-              "num": str(num), "gl": gl, "hl": hl}
+              "num": str(num), "start": str(start), "gl": gl, "hl": hl}
     r = httpx.get("https://api.scrape.do/plugin/google/search",
                   params=params, timeout=60)
     r.raise_for_status()
@@ -778,117 +777,137 @@ def _scrape_do_search(query, num=20, gl="us", hl="en"):
     return out
 
 
-def collect_search_dork(tenant, platforms=None, max_per=25):
+def _platform_for_url(url):
+    """Map a result URL to its (platform, host, module, category) using
+    DORK_TARGETS, so one combined multi-site dork can be split back per
+    platform. Returns None if the URL is not on a tracked social host."""
+    u = (url or "").lower()
+    for platform, (host, module, category) in DORK_TARGETS.items():
+        if host in u:
+            return platform, host, module, category
+    return None
+
+
+def _build_social_finding(res, tenant, brand, brand_terms, query, engine_label):
+    """Build a single Search/Dorking finding dict from a raw search result, or
+    None if it isn't on a tracked social host or fails brand-relevance."""
+    url = res.get("href") or res.get("url") or ""
+    pinfo = _platform_for_url(url)
+    if not pinfo:
+        return None
+    platform, host, module, category = pinfo
+    title = res.get("title") or url
+    snippet = (res.get("body") or "")[:280]
+    # STRICT relevance: the brand keyword must actually appear (normalised).
+    hay = _norm(title + " " + snippet + " " + url)
+    if not any(term in hay for term in brand_terms):
+        return None
+    handle = url.rstrip("/").split("/")[-1][:60] or url
+    low = (title + snippet + url).lower()
+    conf, classification, vsignals = impersonation_assessment(
+        tenant, platform, handle, title, snippet, url, category)
+    score = max(65, conf) if category == "Data Exposure" else conf
+    score = min(max(score, 10), 100)
+    return {
+        "module": module, "category": category, "source": "Search/Dorking",
+        "platform": platform, "title": title[:180], "url": url, "domain": host,
+        "risk_score": score, "severity": severity_from_score(score),
+        "evidence": {"query": query, "snippet": snippet, "engine": engine_label,
+                     "matched_brand": brand, "verification_signals": vsignals},
+        "entities": {
+            "account_name": title[:100], "username": handle, "display_name": title[:80],
+            "description": snippet, "profile_url": url,
+            "account_type": ("official" if any(w in low for w in ["official", "verified"]) else "unverified"),
+            "impersonation_confidence": conf, "impersonation_classification": classification,
+            "keyword": brand, "comments": "Full comment threads require a connected platform API",
+            "screenshot_url": None,
+        },
+        "dedupe_key": _dedupe_key(tenant["id"], module, url),
+    }
+
+
+def collect_search_dork(tenant, platforms=None, max_per=25, max_pages=4):
     t0 = time.time()
     deadline = t0 + 220  # overall budget; run is scheduled in the background
     findings, error, status = [], None, "healthy"
     any_backend_ok = False
     brands = [b for b in (tenant.get("brand_names") or [tenant.get("name")]) if b]
     brand = brands[0]
-    # identity-aware normalized brand terms used for strict relevance matching
     brand_terms = _brand_terms_all(tenant)
+    targets = DORK_TARGETS
+    if platforms:
+        targets = {k: v for k, v in DORK_TARGETS.items() if k in platforms}
+    use_scrape_do = bool(os.environ.get("SCRAPE_DO_KEY"))
     try:
-        targets = DORK_TARGETS
-        if platforms:
-            targets = {k: v for k, v in DORK_TARGETS.items() if k in platforms}
-        for platform, (host, module, category) in targets.items():
-            if time.time() > deadline:
-                break
-            q = f'{brand} site:{host}'
-            try:
-                use_scrape_do = bool(os.environ.get("SCRAPE_DO_KEY"))
-                if use_scrape_do:
-                    # scrape.do -> real Google results (accounts + posts)
-                    results = _scrape_do_search(q, num=max_per) or []
-                    if not results:
-                        results = _scrape_do_search(f'{brand} {platform}', num=max_per) or []
-                    any_backend_ok = True
-                else:
-                    # free fallback: rotate ddgs backends + broad query
+        if use_scrape_do:
+            # ── ONE combined multi-site dork, paginated ──────────────────────
+            # Covers every platform in a single query and pages through Google
+            # via `start`, so a full sweep costs only a few scrape.do requests
+            # instead of one-per-platform.
+            hosts = list(dict.fromkeys(h for (h, _, _) in targets.values()))
+            site_clause = " OR ".join(f"site:{h}" for h in hosts)
+            q = f"{brand} ({site_clause})"
+            seen_urls = set()
+            page_num = 20
+            for page in range(max_pages):
+                if time.time() > deadline:
+                    break
+                try:
+                    batch = _scrape_do_search(q, num=page_num, start=page * page_num) or []
+                except Exception as e:
+                    error = str(e)
+                    break
+                any_backend_ok = True
+                if not batch:
+                    break
+                for res in batch:
+                    url = res.get("href") or res.get("url") or ""
+                    if not url or url in seen_urls:
+                        continue
+                    seen_urls.add(url)
+                    f = _build_social_finding(res, tenant, brand, brand_terms, q, "scrape.do (google)")
+                    if f:
+                        findings.append(f)
+                if len(batch) < page_num // 2:
+                    break  # Google is running out of results for this dork
+        else:
+            # ── free fallback: per-platform ddgs rotation (paced) ────────────
+            for platform, (host, module, category) in targets.items():
+                if time.time() > deadline:
+                    break
+                q = f'{brand} site:{host}'
+                try:
                     results, ok = _ddg_search_multi(q, host=host, max_results=max_per, deadline=deadline)
                     if not results and time.time() < deadline:
                         results, ok2 = _ddg_search_multi(
                             f'{brand} {platform}', host=host, max_results=max_per, deadline=deadline)
                         ok = ok or ok2
                     any_backend_ok = any_backend_ok or ok
-                for res in results:
-                        url = res.get("href") or res.get("url") or ""
-                        if host not in url:
-                            continue
-                        title = res.get("title") or url
-                        snippet = (res.get("body") or "")[:280]
-                        # STRICT relevance: the brand keyword must actually appear
-                        # in the title, handle or snippet (normalised, space-insensitive).
-                        hay = _norm(title + " " + snippet + " " + url)
-                        if not any(term in hay for term in brand_terms):
-                            continue
-                        handle = url.rstrip("/").split("/")[-1][:60] or url
-                        low = (title + snippet + url).lower()
-
-                        # ---- Impersonation confidence + classification ----
-                        conf, classification, vsignals = impersonation_assessment(
-                            tenant, platform, handle, title, snippet, url, category)
-
-                        # risk score aligned with confidence, but data-exposure stays high
-                        if category == "Data Exposure":
-                            score = max(65, conf)
-                        else:
-                            score = conf
-                        score = min(max(score, 10), 100)
-                        findings.append({
-                            "module": module,
-                            "category": category,
-                            "source": "Search/Dorking",
-                            "platform": platform,
-                            "title": title[:180],
-                            "url": url,
-                            "domain": host,
-                            "risk_score": score,
-                            "severity": severity_from_score(score),
-                            "evidence": {"query": q, "snippet": snippet,
-                                         "engine": "scrape.do (google)" if use_scrape_do else "duckduckgo",
-                                         "matched_brand": brand,
-                                         "verification_signals": vsignals},
-                            "entities": {
-                                "account_name": title[:100],
-                                "username": handle,
-                                "display_name": title[:80],
-                                "description": snippet,
-                                "profile_url": url,
-                                "account_type": ("official" if any(w in low for w in ["official", "verified"]) else "unverified"),
-                                "impersonation_confidence": conf,
-                                "impersonation_classification": classification,
-                                "keyword": brand,
-                                "comments": "Full comment threads require a connected platform API",
-                                "screenshot_url": None,
-                            },
-                            "dedupe_key": _dedupe_key(tenant["id"], module, url),
-                        })
-                # pace only the free scraper path (to avoid throttling); the
-                # scrape.do path is reliable and can run back-to-back
-                if not use_scrape_do and time.time() < deadline:
-                    time.sleep(10)
-            except Exception as e:
-                error = str(e)
-                time.sleep(2)
+                    for res in results:
+                        f = _build_social_finding(res, tenant, brand, brand_terms, q, "duckduckgo")
+                        if f:
+                            findings.append(f)
+                    if time.time() < deadline:
+                        time.sleep(10)  # pace to avoid throttling
+                except Exception as e:
+                    error = str(e)
+                    time.sleep(2)
     except Exception as e:
         error = str(e)
         status = "failed"
-    # Status reflects whether the free scrapers returned usable data:
+    # Status reflects whether the search backend returned usable data:
     #  - healthy  : we retrieved brand-relevant findings
     #  - degraded : engines were blocked, or only returned irrelevant results
-    #               (search engines throttle/serve junk to datacenter IPs)
     if status != "failed":
         if findings:
             status = "healthy"
         else:
             status = "degraded"
             if not any_backend_ok:
-                error = error or ("Free search engines blocked this server IP (no results). "
+                error = error or ("Search backend returned no results (blocked or unreachable). "
                                   "Reliable coverage needs a keyed search API or a non-datacenter IP.")
             else:
-                error = ("Search engines returned no brand-relevant results for this server IP "
-                         "(datacenter IPs are commonly served degraded/irrelevant results).")
+                error = error or ("Search returned no brand-relevant results for this brand/query.")
     return findings, {"collector": "Search/Dorking", "status": status,
                       "error": error, "items_found": len(findings),
                       "duration_ms": int((time.time() - t0) * 1000)}

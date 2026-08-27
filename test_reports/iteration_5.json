@@ -1,0 +1,65 @@
+{
+  "summary": "Iteration 5 - verified the token-saving refactor (ONE combined multi-site Google dork + start-based pagination) for the scrape.do search path. Triggered EXACTLY ONE POST /api/tenants/0d66bfb6-.../run?collector=search_dork as super admin: endpoint returned 200 in 0.16s (async), background run finished in 11.5s, monitoring-health 'Search/Dorking' = Healthy, items_found=28, new_findings=8 (previously ~13 scrape.do calls; now 4). GET /api/findings?module=social returns 122 Welspun findings across 12 platforms (LinkedIn 17, X 14, Scribd 14, Reddit 12, Pinterest 12, Twitter 11, Instagram 9, Telegram 9, Facebook 8, Threads 7, YouTube 6, TikTok 3); the 28 newly-created scrape.do findings span 7 platforms (LinkedIn 15, Facebook 5, Scribd 2, X 2, Instagram 2, YouTube 1, Reddit 1). 100% of URLs resolve to the host matching their platform field and 100% contain the brand token, so _platform_for_url splits the combined dork correctly. PROVENANCE: all 28 new findings carry evidence.engine == 'scrape.do (google)' and exactly ONE distinct evidence.query = 'Welspun (site:instagram.com OR site:x.com OR ... OR site:scribd.com)' - confirmed in the UI drawer Evidence tab (Query + Engine rows). Platform filter is now case-insensitive (?platform=instagram == ?platform=Instagram: 9/9; linkedin==LinkedIn: 17/17). Frontend: tenant switcher -> Welspun, Social Media shows '1-25 of 122', next/prev pagination changes rows, Instagram filter narrows to 9/9 all-instagram rows, drawer opens with Evidence/Verification/Entities tabs, Monitoring Health admin page shows Welspun Search/Dorking Healthy 28/8. REGRESSION all pass: Stripe Payments exactly 69 social findings with non-overlapping pagination, search 'stripe' -> 67, CSV (social.csv) and PDF (social-report.pdf) download, all 4 role logins OK, /api/findings/report.pdf returns %PDF, overlapping Run Now returns 'A scan is already running for this tenant' (200). SCRAPE_DO_KEY read only via os.environ.get and not present anywhere in backend/*.py. New suite: 15/15 pass; legacy suites 88 passed / 1 skipped.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "collectors.py collect_search_dork (pagination stride)",
+        "issue": "Pagination requests num=20 but advances start by only 10 (start=page*10), so consecutive pages overlap ~50%. 4 paid scrape.do requests covered only ~results 0-49 and yielded 28 unique brand-relevant URLs. Use start=page*num (or num=10) to double coverage for the same token spend."
+      },
+      {
+        "endpoint": "collectors.py _build_social_finding (precision)",
+        "issue": "The combined dork surfaces employee personal LinkedIn profiles (e.g. linkedin.com/in/bhavinkumar-bhatt-..., linkedin.com/in/vipul-mathur-...) which are stored as Type 'Impersonation'. Brand relevance passes only via the snippet mentioning the employer. Recommend a rule that /in/ personal profiles are classified 'Brand Mention' rather than Impersonation, or excluded."
+      },
+      {
+        "endpoint": "collectors.py collect_search_dork (early stop)",
+        "issue": "Stop condition is `len(batch) < 5` while num=20 is requested; a page returning 6-19 results (common on deep Google pages) still triggers another paid request. Threshold should be relative to num."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "FindingDrawer (Radix DialogContent)",
+        "issue": "Console error on every drawer open: '`DialogContent` requires a `DialogTitle` for the component to be accessible for screen reader users.' Wrap the finding title in DialogTitle or VisuallyHidden.",
+        "selector": "[data-testid=\"findings-table-row\"] -> drawer",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Social Media / GlobalFilterBar",
+        "issues": ["Filters (search text, platform) persist across a tenant switch: with search='stripe' applied, switching Stripe Payments -> Welspun shows 'No results for current filters' (0 of 0), which reads as 'this tenant has no data'. Reset the filter bar (or at least the search term) when the active tenant changes."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_combined_dork.py",
+    "/app/test_reports/pytest/iteration5_results.xml"
+  ],
+  "action_items": [
+    "Fix pagination stride: use start=page*num so the 4 paid requests cover 80 results instead of 50 (same token cost, ~2x findings).",
+    "Make the early-stop threshold relative to num instead of the hardcoded `< 5`.",
+    "Classify LinkedIn /in/ personal-profile hits as Brand Mention, not Impersonation (false-positive precision).",
+    "Add DialogTitle (or VisuallyHidden) to the finding drawer DialogContent to clear the a11y console error.",
+    "Reset the global filter bar when the active tenant changes so filtered-empty states aren't mistaken for 'no data'."
+  ],
+  "critical_code_review_comments": [
+    "collectors.py is 1256 lines and server.py 1139 lines - both exceed the 700-line guideline; split collectors into per-collector modules (search_dork, dns, typosquat, ...) and server into routers.",
+    "_RUNNING_SCANS is a process-local set; with more than one uvicorn worker the overlap guard silently stops working. Move the in-flight lock to Mongo (or note the single-worker requirement).",
+    "The combined dork is built from DORK_TARGETS hosts and includes pastebin.com, which is a Data Exposure host - it therefore appears as a 'Platform' option on the Social Media page. Consider splitting social hosts from data-exposure hosts into two dorks."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_combined_dork.py",
+    "/app/backend/tests/test_run_guard.py",
+    "/app/backend/tests/test_social_display.py"
+  ],
+  "success_rate": {"backend": "100% (15/15 new + 88 legacy pass)", "frontend": "100% of flows tested passed"},
+  "seed_data_creation": "No new tenants/users created. One search_dork run on the existing Welspun tenant added 8 new social findings (114 -> 122). One typosquat run on Welspun (free) and one on AIG Hospitals for the overlap-guard test.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@brandshield.io/Admin@123, tadmin@brandshield.io/Tenant@123, analyst@brandshield.io/Analyst@123, viewer@brandshield.io/Viewer@123 - all verified working",
+  "context_for_next_testing_agent": "New suite /app/backend/tests/test_combined_dork.py gates the paid scrape.do run behind env RUN_SCAN=1 (test_00_trigger_single_run is skipped otherwise) - keep that pattern, do NOT run it repeatedly. I fixed stale fixtures in test_run_guard.py/test_social_display.py that looked up tenant 'AIG Hospital' (actual name is 'AIG Hospitals'). test_run_guard.py::test_guard_released_after_completion still fails when run in isolation because it depends on the preceding wait-for-completion test in the same class and it fires a paid search_dork run - I deliberately did not run it; run the whole class or leave it. Duplicate 'Welspun' tenant reported in iteration_4 is gone: GET /api/tenants now returns AIG Hospitals, DLB, Welspun, Netflix Media, Stripe Payments. Analyst role correctly has no Monitoring Health nav link (admin-portal only) - not a bug.",
+  "rca_of_the_issue": "No defects in the refactor itself. The only efficiency gap: _scrape_do_search is called with num=20 but start increments by 10, so each paid page re-fetches half the previous page's results; the dedupe set hides this but the sweep only reaches Google result ~50 with 4 requests."
+}

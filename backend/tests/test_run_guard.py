@@ -38,7 +38,7 @@ def tenants(admin):
 
 @pytest.fixture(scope="module")
 def aig_id(tenants):
-    t = tenants.get("AIG Hospital")
+    t = tenants.get("AIG Hospital") or tenants.get("AIG Hospitals")
     if not t:
         pytest.fail(f"AIG Hospital tenant missing. Have: {list(tenants)}")
     return t["id"]
@@ -74,7 +74,7 @@ class TestRunNowGuard:
         assert r.status_code == 200, f"{r.status_code} {r.text[:400]}"
         body = r.json()
         assert body.get("ok") is True, body
-        assert body.get("tenant") == "AIG Hospital", body
+        assert (body.get("tenant") or "").startswith("AIG Hospital"), body
         assert elapsed < 5, f"run endpoint took {elapsed:.1f}s (should return immediately)"
         TestRunNowGuard.state["started"] = body.get("message") == "Monitoring run started"
 
