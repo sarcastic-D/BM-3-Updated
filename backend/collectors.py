@@ -12,6 +12,7 @@ import socket
 import hashlib
 import difflib
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 import httpx
 import dns.resolver
@@ -816,12 +817,17 @@ def _serper_search(query, page=1, gl="us", hl="en"):
 
 def _platform_for_url(url):
     """Map a result URL to its (platform, host, module, category) using
-    DORK_TARGETS, so one combined multi-site dork can be split back per
-    platform. Returns None if the URL is not on a tracked social host."""
-    u = (url or "").lower()
-    for platform, (host, module, category) in DORK_TARGETS.items():
-        if host in u:
-            return platform, host, module, category
+    DORK_TARGETS. Matches on the parsed hostname (exact or subdomain) so that
+    e.g. 'x.com' does NOT match 'upstox.com'. Returns None if not a tracked host."""
+    raw = (url or "").strip()
+    if "//" not in raw:
+        raw = "http://" + raw
+    host = urlparse(raw).netloc.lower().split(":")[0]
+    if host.startswith("www."):
+        host = host[4:]
+    for platform, (thost, module, category) in DORK_TARGETS.items():
+        if host == thost or host.endswith("." + thost):
+            return platform, thost, module, category
     return None
 
 
@@ -987,32 +993,41 @@ def collect_search_dork(tenant, platforms=None, max_per=25, max_pages=4,
                 except Exception as e:
                     error = str(e)
 
-        # ── Serper fallback: ONE combined keyword dork, paginated 1..N ────────
-        # Used when scrape.do isn't configured, is quota-blocked, or coverage is
-        # thin. serper's free plan forbids site:/OR, so we combine the brand with
-        # every SOCIAL platform keyword in a single query and filter by host.
-        # Data-exposure sites (pastebin/scribd) are excluded so all free result
-        # slots go to core social platforms.
+        # ── Serper: per-platform keyword queries, deeply paginated ───────────
+        # serper's free plan forbids site:/OR, and mashing all platforms into one
+        # query dilutes the brand (Google returns generic "social media" noise).
+        # So we run one focused '{brand} {platform}' query PER platform and page
+        # through it (early-stop when a page adds nothing new). This yields far
+        # more brand-relevant accounts/posts. Runs when scrape.do is absent,
+        # quota-blocked, or coverage is thin.
         if use_serper and (not use_scrape_do or quota_hit or len(findings) < min_total):
-            social_targets = [p for p in targets if p not in ("Pastebin", "Scribd")]
-            kw = " ".join(dict.fromkeys(_SERPER_KEYWORDS.get(p, p.lower()) for p in social_targets))
-            sq = f"{brand} {kw}"
-            for page in range(1, serper_pages + 1):  # pagination up to serper_pages
+            serper_targets = [p for p in targets if p not in ("Pastebin", "Scribd")]
+            for platform in serper_targets:
                 if time.time() > deadline:
                     break
-                try:
-                    batch = _serper_search(sq, page=page, gl=gl) or []
-                except ScrapeDoQuotaError as e:
-                    error = str(e)
-                    break
-                except Exception as e:
-                    error = str(e)
-                    break
-                any_backend_ok = True
-                if not batch:
-                    break
-                for res in batch:
-                    _ingest(res, sq, "serper (google)")
+                kw = _SERPER_KEYWORDS.get(platform, platform.lower())
+                sq = f"{brand} {kw}"
+                for page in range(1, serper_pages + 1):
+                    if time.time() > deadline:
+                        break
+                    try:
+                        batch = _serper_search(sq, page=page, gl=gl) or []
+                    except ScrapeDoQuotaError as e:
+                        error = str(e)
+                        break
+                    except Exception as e:
+                        error = str(e)
+                        break
+                    any_backend_ok = True
+                    if not batch:
+                        break
+                    before = len(findings)
+                    for res in batch:
+                        _ingest(res, sq, "serper (google)")
+                    # stop paging this platform once deeper pages stop adding
+                    # brand-relevant results (saves requests on exhausted queries)
+                    if len(findings) == before and page >= 2:
+                        break
 
         if not use_scrape_do and not use_serper:
             # ── free fallback: per-platform ddgs rotation (paced) ────────────

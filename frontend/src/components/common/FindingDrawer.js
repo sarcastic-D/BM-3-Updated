@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import {
-  Sheet, SheetContent, SheetHeader, SheetTitle,
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
 } from "@/components/ui/sheet";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -77,8 +77,9 @@ export const FindingDrawer = ({ findingId, open, onOpenChange, onUpdated }) => {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent data-testid="finding-detail-drawer" className="w-full sm:max-w-[560px] overflow-y-auto p-0">
+        <SheetDescription className="sr-only">Detailed information about the selected finding</SheetDescription>
         {loading || !f ? (
-          <div className="flex h-full items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+          <div className="flex h-full items-center justify-center"><SheetTitle className="sr-only">Loading finding</SheetTitle><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
         ) : (
           <div>
             <SheetHeader className="border-b border-border p-5">

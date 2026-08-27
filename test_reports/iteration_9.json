@@ -1,0 +1,43 @@
+{
+  "summary": "Iteration 9 verification-only pass (NO collector/serper runs). Verified the _platform_for_url host-boundary fix, the /api/findings search-snippet fix, Welspun data completeness, and full Stripe/auth/export regression. 57 backend tests passed (100%), incl. 17 new unit cases for _platform_for_url. Frontend Social Media page verified end-to-end for Welspun (232 findings, pagination, platform filter, search, drawer, CSV+PDF export). No functional defects found.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Finding detail drawer (Sheet/DialogContent)", "issues": ["Console a11y error on every drawer open: '`DialogContent` requires a `DialogTitle`...' + 'Missing Description or aria-describedby for {DialogContent}'. Cosmetic/a11y only — wrap the sheet title in SheetTitle or VisuallyHidden."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_platform_mapping_unit.py",
+    "/app/backend/tests/test_platform_mapping.py",
+    "/app/backend/tests/test_welspun_completeness.py",
+    "/app/backend/tests/test_welspun_quality.py",
+    "/app/backend/tests/test_iteration8_regression.py",
+    "/app/test_reports/pytest/iteration9.xml"
+  ],
+  "action_items": [
+    "OPTIONAL (a11y): add a SheetTitle/VisuallyHidden title + description to FindingDrawer's SheetContent to clear the recurring Radix console error."
+  ],
+  "critical_code_review_comments": [
+    "collectors._platform_for_url now correctly uses urlparse(...).netloc, strips port and leading 'www.', and matches host == target or host.endswith('.'+target). Verified against 17 cases incl. upstox.com, ambitionbox.com, notx.com, fakelinkedin.com, mytiktok.com, t.me.evil.com => all None; in.linkedin.com/de.linkedin.com/m.facebook.com/old.reddit.com/t.me => correct platform.",
+    "DORK_TARGETS iteration order means 'x.com' is checked before 'twitter.com'; with exact/subdomain matching there is no longer any overlap, so ordering is safe.",
+    "collectors.py is ~1420 lines — consider splitting (typosquat / crtsh / search-dork / app_store) into modules per the >700-line guideline."
+  ],
+  "updated_files": ["/app/backend/tests/test_platform_mapping_unit.py"],
+  "success_rate": { "backend": "100% (57/57)", "frontend": "100% of tested flows" },
+  "seed_data_creation": "None. Read-only against existing DB. Only cheap collector=dns Run Now used for the overlapping-run guard (no serper/scrape.do spend).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@brandshield.io/Admin@123, tadmin@brandshield.io/Tenant@123, analyst@brandshield.io/Analyst@123, viewer@brandshield.io/Viewer@123 (all 4 logins 200)",
+  "verified_details": {
+    "platform_mapping": "test_platform_mapping.py: Welspun MIS-MAPPED 0/232, Stripe MIS-MAPPED 0/69. Zero findings with upstox.com/ambitionbox.com hosts remain. Frontend platform column across all 10 pages contained only tracked platforms.",
+    "search_snippet_fix": "GET /api/findings?tenant_id=welspun&module=social&search=welspun -> total 232 (was 213). Confirmed identically on the UI search box.",
+    "welspun_completeness": "total=232, paged unique ids=232, 0 duplicate URLs, 0 non-brand-relevant, no _id leak; platforms {LinkedIn 58, Facebook 42, Instagram 38, YouTube 31, Reddit 22, X 16, Pinterest 15, TikTok 7, Scribd 3}; platform filter counts match API (linkedin/LINKEDIN/Instagram/youtube); CSV=232 rows; 12 sampled URLs 0x404.",
+    "stripe_regression": "69 social findings, pagination 69/69, platform filter, search, detail (no _id), CSV 69 rows, report.pdf 200 %PDF.",
+    "rbac_and_guard": "viewer POST /run -> 403; unauthenticated /api/findings -> 401/403; second overlapping run (collector=dns) -> 'A scan is already running for this tenant'.",
+    "config_security": "No SERPER_KEY/SCRAPE_DO_KEY literals in backend source; no hardcoded preview URL in frontend/src."
+  },
+  "context_for_next_testing_agent": "Both iteration_8 defects are FIXED and verified. Read-only suites to reuse: tests/test_platform_mapping.py, test_platform_mapping_unit.py, test_welspun_completeness.py, test_welspun_quality.py, test_iteration8_regression.py (run with -n 0). NEVER run test_welspun_scrapedo.py / test_serper_live_welspun.py / test_combined_dork.py — they burn serper/scrape.do quota. Welspun tenant id 6bd8b86e-a6f4-492d-96d3-db66b5ef7d2d (232 social), Stripe TEN-0001 (69). Frontend drawer tabs (Evidence/Verification/Entities/Screenshot/Changes/Timeline) are plain buttons, not role=tab — select by text, and wait ~2s after opening the drawer before reading inner_text.",
+  "rca_of_the_issue": "Previous HIGH defect root cause: _platform_for_url used a substring test ('x.com' in url) so any host ending in the target string (upstox.com, ambitionbox.com) matched. Fixed by parsing the hostname and requiring exact-or-subdomain equality; 3 polluted rows were purged from the DB. Search gap root cause: build_findings_query's $or omitted evidence.snippet, so findings whose brand term appeared only in the snippet were excluded (213 vs 232); fixed by adding evidence.snippet + entities.account_name/description to the $or."
+}

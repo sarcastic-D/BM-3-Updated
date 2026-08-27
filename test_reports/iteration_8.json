@@ -1,0 +1,59 @@
+{
+  "summary": "Iteration 8 — verified the per-platform serper fix against the EXISTING Welspun (TEN-0006) dataset without spending serper quota (no new search_dork run triggered; only a cheap collector=dns run for the overlapping-Run-Now guard). Backend: 34 new pytest cases (test_welspun_completeness.py, test_welspun_quality.py, test_platform_mapping.py, test_iteration8_regression.py) + 60 existing regression cases re-run. Confirmed 235 social findings across 9 platforms (LinkedIn 58, Facebook 42, Instagram 38, YouTube 31, Reddit 22, X 19, Pinterest 15, TikTok 7, Scribd 3), 0 duplicate URLs, 100% brand-relevant ('welspun' in title/snippet/url), 227/235 via evidence.engine='serper (google)', and 220/235 carry FOCUSED per-platform queries ('Welspun instagram', 'Welspun linkedin', ...) — the giant combined query is gone for all new results. API pagination returns exactly 235 unique ids, platform filter is case-insensitive and count-exact. Sampled 12 live URLs: 0 hard 404s (Reddit 403 / LinkedIn 999 = bot-blocks, pages exist). Frontend: Welspun Social Media page paginates all 10 pages, platform filter matches API counts exactly (LinkedIn 58 / Instagram 38 / TikTok 7), search works, drawer shows account/username/query/snippet/engine, CSV export = 235 rows. Stripe regression fully green (69 findings, 3 pages, Instagram 12, search 67, CSV 69 rows, PDF %PDF, analyst login). All 4 role logins pass, viewer is 403 on /run, overlapping Run Now returns 'A scan is already running for this tenant'. Keys read from env only. ONE REAL BUG FOUND: platform mapping uses a naive substring host match.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "collectors._platform_for_url (affects /api/findings platform field)", "issue": "Naive substring match `if host in url` — 'x.com' matches 'upstox.com' and 'ambitionbox.com', so 3 non-social URLs are stored as platform='X' for Welspun: https://www.ambitionbox.com/reviews/welspun-india-reviews, https://upstox.com/group-stocks/welspun-shares/, https://www.ambitionbox.com/reviews/welspun-group-reviews. These are not social results at all and pollute the X subset (3/19 = 16% of X). Fix: parse the hostname (urlparse) and require host == target or host.endswith('.'+target). Reproduce: pytest tests/test_platform_mapping.py::test_platform_host_boundary (fails 3/235; Stripe passes 0/69). Note 't.me' (Telegram) is even more collision-prone with the same substring logic.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "GET /api/findings?search=", "issue": "Search regex covers title/url/domain/entities.username/display_name but NOT evidence.snippet, so search 'welspun' returns 213 of the 235 brand-relevant findings (22 are brand-relevant only via snippet). Consider adding evidence.snippet to the $or."},
+      {"endpoint": "collect_search_dork (serper path)", "issue": "serper_targets excludes Pastebin and Scribd, so with scrape.do quota-exhausted the Data Exposure platforms get ZERO new coverage (the 3 Welspun Scribd rows are leftovers from the older scrape.do run). Either add focused 'Welspun scribd'/'Welspun pastebin' queries or surface the gap in monitoring health."},
+      {"endpoint": "Welspun social dataset (data hygiene)", "issue": "15 of the 235 findings are from pre-fix runs: 7 with the combined keyword query and 8 with the tagline brand 'Globally recognized leaders in Home Textiles and Line Pipes (site:... OR ...)'. They are still brand-relevant so harmless, but evidence.query is misleading; consider re-keying or purging pre-fix rows."},
+      {"endpoint": "collect_search_dork (Threads/Telegram)", "issue": "'Welspun threads' and 'Welspun telegram' queries ran but produced 0 findings on threads.net / t.me (their hits mapped to other platforms). Likely genuine absence, but worth logging per-platform query yield so zero-coverage platforms are visible instead of silent."},
+      {"endpoint": "server._RUNNING_SCANS", "issue": "In-process set — the overlapping-run guard only works with a single backend worker/replica. Use a DB/Redis lock for multi-worker deployments."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "FindingDrawer (Radix Sheet/Dialog)", "issue": "Still logs on every open: '`DialogContent` requires a `DialogTitle` ...' plus 'Missing Description or aria-describedby'. Reported in iteration 7, not yet fixed.", "selector": "[data-testid=\"finding-detail-drawer\"]", "priority": "LOW"},
+      {"component": "Toaster + FindingDrawer", "issue": "The 'Export ready' / 'PDF report ready' toast renders on top of the open drawer header and hides the finding title (title reads 'Tata Inks Bigges…' behind the toast). Offset the toast or lower its z-index below the sheet header.", "selector": "[data-testid=\"finding-detail-drawer\"] header", "priority": "LOW"},
+      {"component": "DataTable / Description column", "issue": "On Stripe social rows the Description cell renders 6+ lines of raw pastebin code despite the line-clamp-2 class, producing very tall, unevenly aligned rows (Account Name also shows raw '<script src=...' text). Enforce the clamp / truncate for code-like snippets.", "selector": "[data-testid=\"findings-table-row\"]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Social Media (Stripe tenant)", "issues": ["Row heights vary from ~40px to ~180px because long code snippets are not clamped, breaking the table rhythm"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_welspun_completeness.py",
+    "/app/backend/tests/test_welspun_quality.py",
+    "/app/backend/tests/test_platform_mapping.py",
+    "/app/backend/tests/test_iteration8_regression.py",
+    "/app/test_reports/pytest/iteration8.xml"
+  ],
+  "action_items": [
+    "HIGH: fix collectors._platform_for_url to match on the parsed hostname (host == target or endswith '.'+target) instead of substring, then clean the 3 mis-mapped Welspun 'X' findings (ambitionbox.com x2, upstox.com).",
+    "Add evidence.snippet to the /api/findings search $or so snippet-only brand matches are searchable (213 vs 235 today).",
+    "Decide on Pastebin/Scribd coverage in the serper path (currently excluded => no Data Exposure coverage while scrape.do is quota-blocked).",
+    "Optional: purge/re-key the 15 pre-fix findings that still carry the combined/tagline query in evidence.query.",
+    "Optional a11y/UI: add DialogTitle to the finding drawer; keep toasts from overlapping the drawer header; clamp long description text."
+  ],
+  "critical_code_review_comments": [
+    "_platform_for_url substring matching is the root cause of cross-domain platform mis-labelling; every DORK_TARGETS host is vulnerable ('t.me', 'x.com' are worst).",
+    "collectors.py is 1415 lines — split provider adapters (_scrape_do_search/_serper_search/_ddg_search_multi) and _build_social_finding into modules.",
+    "The serper per-platform page loop `break`s on ANY exception, so one transient 5xx aborts the remaining pages for that platform; retry the page once before aborting.",
+    "Serper request cost is bounded only by serper_pages * platforms (up to 8*11 = 88 requests/run) with no per-run request budget counter — add an explicit request cap given the free monthly cap."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_welspun_completeness.py",
+    "/app/backend/tests/test_welspun_quality.py",
+    "/app/backend/tests/test_platform_mapping.py",
+    "/app/backend/tests/test_iteration8_regression.py"
+  ],
+  "success_rate": {"backend": "97% (33/34 new cases pass; 1 real defect: platform host mis-mapping. 60/60 existing regression cases pass)", "frontend": "100% of tested flows (pagination, platform filter, search, drawer, CSV, PDF) on both Welspun and Stripe"},
+  "seed_data_creation": "None. No search_dork/serper run triggered (quota preserved). Only one cheap collector=dns run on Stripe to prove the overlapping-Run-Now guard.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "/app/memory/test_credentials.md — all 4 roles verified (admin@brandshield.io/Admin@123, tadmin/Tenant@123, analyst/Analyst@123, viewer/Viewer@123); wrong password -> 401; unauthenticated /api/findings -> 403.",
+  "context_for_next_testing_agent": "Quota-safe verification pattern: use tests/test_welspun_completeness.py, test_welspun_quality.py, test_platform_mapping.py — they only READ /api/findings for Welspun (6bd8b86e-a6f4-492d-96d3-db66b5ef7d2d, 235 social findings) and Stripe (TEN-0001, 69). Do NOT run tests/test_welspun_scrapedo.py, test_serper_live_welspun.py, test_combined_dork.py, test_social_display.py, test_run_guard.py or backend_test.py's run-collector tests without care — they trigger real search_dork runs and burn serper free quota. Run serially with `-n 0` (pytest.ini forces -n 2). Export endpoints are /api/findings/export (CSV) and /api/findings/report.pdf; run-now is POST /api/tenants/{id}/run?collector=dns (cheap). After the _platform_for_url fix, re-run test_platform_mapping.py — it should go 0/235 mis-mapped.",
+  "rca_of_the_issue": "The reported completeness concern is RESOLVED: the focused per-platform serper queries produce 220 new brand-relevant findings (235 total, 9 platforms), all displayed/paginated/filterable/exportable end-to-end. Residual defect: _platform_for_url decides the platform with `if host in url`, an unanchored substring test, so 'x.com' matches 'upstox.com' and 'ambitionbox.com' — 3 Welspun findings from the 'Welspun twitter' query are stored as platform='X' although they are stock/review sites, not social. Fix by comparing the urlparse hostname with exact/subdomain equality."
+}

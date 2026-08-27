@@ -562,7 +562,9 @@ def build_findings_query(params, user):
     if p.get("search"):
         rx = {"$regex": re.escape(p["search"]), "$options": "i"}
         q["$or"] = [{"title": rx}, {"url": rx}, {"domain": rx},
-                    {"entities.username": rx}, {"entities.display_name": rx}]
+                    {"entities.username": rx}, {"entities.display_name": rx},
+                    {"entities.account_name": rx}, {"entities.description": rx},
+                    {"evidence.snippet": rx}]
     return q
 
 
