@@ -1,0 +1,49 @@
+{
+  "summary": "Iteration 10 e2e test of (1) platform-aware username/entity extraction, (2) serper pagination=13 config, (3) real Playwright screenshot capture, plus Stripe/RBAC regression. Backend pytest: 31 tests, 29 passed / 2 failed (both failures are genuine username-extraction defects I documented as tests). Frontend: login (all 4 roles), Welspun tenant switch, social list 232, pagination, platform filter+Apply, search, drawer Entities tab (username/content_type/account_name shown), Screenshot tab capture -> image rendered, viewer RBAC (capture button hidden + 403 on API). Screenshot capture works end-to-end (real PNG served from /api/media, YouTube page captured perfectly; Reddit/X return block/blank pages but flow does not crash). NO serper/search_dork run was triggered (quota safe) - only 'dns' collector used for the run-guard test.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "collectors._extract_handle (GET /api/findings?module=social)", "issue": "22 of 232 Welspun findings (9.5%) use a navigation/keyword URL segment as entities.username AND are mislabelled content_type='profile': youtube.com/hashtag/X -> 'hashtag' (8), x.com/hashtag/X -> 'hashtag' (2), instagram.com/popular/... -> 'popular' (5), instagram.com/explore/locations/... -> 'explore' (1), linkedin.com/jobs/... -> 'jobs' (4), linkedin.com/feed/... -> 'feed' (1). Fix: add per-platform non-profile segment set {hashtag, explore, popular, feed, jobs, search, tags, results, share, pulse} -> content_type 'hashtag'/'other' and handle = '#<tag>' or the meaningful slug, never the marker. Because content_type='profile', entities.account_name also becomes 'hashtag'/'popular'/'jobs', so the Social Media table's Account Name column shows garbage, and impersonation_assessment scores username_similarity against these fake handles."},
+      {"endpoint": "collectors._extract_handle (LinkedIn /posts/ and /pulse/)", "issue": "LinkedIn post author handle uses parts[1].split('-')[0], which truncates on the wrong delimiter. Real slug is '<author>_<hashtags>-activity-<id>'. Observed: 'welspunworld_welspun' (should be 'welspunworld'), 'welspun' for welspun-living-limited_... (should be 'welspun-living-limited'), 'rakhi' for rakhi-shukla-16043522_... , 'cxolanes_ruchikaarora', 'nonwovens'. Use parts[1].split('_')[0]. /pulse/ slugs also yield junk handles ('one', 'may') - better to return None/None-handle for pulse articles."},
+      {"endpoint": "POST /api/findings/{id}/screenshot", "issue": "Capture succeeded (200) for an x.com URL but produced a 5.2 KB fully blank white PNG (SPA not rendered: wait_until='domcontentloaded' + 2.5s fixed wait). Consider wait_until='networkidle' / longer wait and a blank/near-empty-PNG guard so a useless white image isn't stored as a valid capture. Reddit/YouTube captures render correctly (bot-block page / full video page)."},
+      {"endpoint": "GET /api/findings?module=social (Welspun)", "issue": "Near-duplicate findings from query-string variants of the same page are stored as separate findings, e.g. 'instagram.com/popular/welspun-anjar/?hl' and '.../?hl=en', 'x.com/hashtag/Welspungroup?src' and '?src=hashtag_click'. Dedupe key should normalise/strip tracking query params."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "SocialMedia table - Account Name column", "issue": "For the 22 bad-handle findings the column renders '@hashtag', '@popular', '@jobs', '@explore', '@feed' (data defect, see backend minor #1). Also for post/video findings account_name is the long page title, so the primary column reads like a headline rather than an account.", "selector": "[data-testid=\"findings-table-row\"]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Finding drawer (Screenshot tab)", "issues": ["Captured image is rendered at full drawer width without a click-to-zoom / open-in-new-tab affordance; a 1280x900 capture is hard to read at ~400px wide."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration10.py",
+    "/app/backend/tests/inspect_handles.py",
+    "/app/test_reports/pytest/iteration10.xml"
+  ],
+  "action_items": [
+    "Fix _extract_handle: treat hashtag/explore/popular/feed/jobs/search/tags/pulse as non-profile segments (content_type != 'profile', handle = tag/slug, not the marker) for Instagram/X/YouTube/LinkedIn.",
+    "Fix LinkedIn /posts/ author handle: split the slug on '_' (first token) instead of '-'; return no handle for /pulse/ articles.",
+    "Re-run the entities backfill over the existing 232 Welspun findings after the fix (tests read from DB).",
+    "Screenshot capture: use networkidle/longer wait and reject blank (near-uniform) PNGs so x.com doesn't store an all-white 5KB image.",
+    "Optional: normalise tracking query params in _dedupe_key to collapse '?hl' vs '?hl=en' near-duplicates."
+  ],
+  "critical_code_review_comments": [
+    "collectors.py is 1478 lines and server.py 1141 lines - both exceed the 700-line guideline; split collectors (search/dork, typosquat, dns, screenshot) and server (findings, tenants, admin config) into modules.",
+    "_extract_handle has no unit-test coverage for the non-profile navigation segments; the 8 happy-path cases I added all pass, so add negative cases when fixing.",
+    "capture_screenshot swallows every exception with a bare 'except Exception: return None' - log the exception so a Playwright/browser-install failure is distinguishable from a site block (the endpoint then returns an identical 502 for both)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration10.py",
+    "/app/backend/tests/inspect_handles.py"
+  ],
+  "success_rate": {"backend": "94% (29/31 pytest; 2 failures are the reported username defects)", "frontend": "100% of flows exercised worked (login x4 roles, tenant switch, list/pagination/filter/search, drawer tabs, screenshot capture, viewer RBAC)"},
+  "seed_data_creation": "None. Read-only against existing DB. Side effects: 3 screenshot PNGs written to /app/backend/media/screenshots and entities.screenshot_url set on those findings; two 'dns'-only scan runs on Stripe tenant for the run-guard test.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@brandshield.io/Admin@123, tadmin@brandshield.io/Tenant@123, analyst@brandshield.io/Analyst@123, viewer@brandshield.io/Viewer@123 - all 4 logins verified 200 with correct role from /api/auth/me",
+  "context_for_next_testing_agent": "Run `pytest /app/backend/tests/test_iteration10.py` - it covers entities/username rules per platform, screenshot capture + RBAC, serper_pages=13 & deadline=300 code assertions, and Stripe regression (69 social, pagination, severity filter, /api/findings/export CSV, /api/findings/report.pdf, run guard). Note: findings search param is `search` (not `q`); CSV is /api/findings/export; PDF is /api/findings/report.pdf; Run Now is POST /api/tenants/{tid}/run?collector=dns and always returns 200 with message 'A scan is already running for this tenant' on overlap. TestHandleExtractionDefects is expected to fail until the handle-extraction fix lands; use /app/backend/tests/inspect_handles.py to re-dump bad handles from Mongo. DO NOT run search_dork/serper (quota). Verified Welspun TEN-0006 has 232 social findings, 0 duplicate URLs, 100% brand-relevant, content_type split profile=118/post=102/video=12.",
+  "rca_of_the_issue": "_extract_handle only guards against a POST-marker set ({p, reel, status, watch, comments, ...}). URL paths whose first segment is a navigation/discovery keyword (hashtag, explore, popular, feed, jobs) are not in that set, so the function falls through to the generic branch and returns parts[0] as a profile handle. Separately, the LinkedIn /posts/ branch splits the slug on '-' although LinkedIn separates the author from the hashtag list with '_', truncating multi-word author slugs. Both are pure string-parsing bugs in collectors.py:834-887 and require a re-backfill of entities.username/content_type for the 232 existing Welspun findings after the fix."
+}

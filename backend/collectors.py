@@ -59,6 +59,25 @@ def _dedupe_key(tenant_id, module, ident):
     return hashlib.sha1(raw.encode()).hexdigest()
 
 
+_TRACK_PARAMS = {"hl", "src", "ref", "ref_src", "s", "feature", "si", "igshid",
+                 "fbclid", "gclid", "utm_source", "utm_medium", "utm_campaign",
+                 "utm_term", "utm_content", "spm", "share_id"}
+
+
+def _canonical_url(url):
+    """Normalise a URL for dedupe: drop scheme/www, strip trailing slash and
+    tracking query params (so '.../welspun?hl' and '.../welspun?src=x' collapse),
+    while keeping meaningful params like youtube's ?v=."""
+    from urllib.parse import parse_qsl
+    p = urlparse(url if "//" in url else "http://" + url)
+    host = p.netloc.lower()
+    if host.startswith("www."):
+        host = host[4:]
+    qs = [(k, v) for k, v in parse_qsl(p.query) if k.lower() not in _TRACK_PARAMS]
+    query = "&".join(f"{k}={v}" for k, v in sorted(qs))
+    return host + p.path.rstrip("/") + ("?" + query if query else "")
+
+
 def severity_from_score(score: int) -> str:
     if score >= 80:
         return "Critical"
@@ -831,6 +850,82 @@ def _platform_for_url(url):
     return None
 
 
+def _extract_handle(url, platform):
+    """Best-effort real username/handle + content type from a social URL.
+    Navigation/keyword segments (hashtag, explore, feed, jobs, ...) are NOT
+    treated as profiles."""
+    from urllib.parse import unquote, parse_qs
+    p = urlparse(url if "//" in url else "http://" + url)
+    parts = [unquote(x) for x in p.path.split("/") if x]
+    plow = [x.lower() for x in parts]
+    POST = {"p", "reel", "reels", "tv", "status", "statuses", "posts", "pulse",
+            "watch", "shorts", "video", "videos", "pin", "story", "stories",
+            "comments", "permalink.php", "story.php", "events", "photo"}
+    NAV = {"explore", "popular", "feed", "jobs", "search", "tags", "tag",
+           "results", "share", "directory", "dir", "accounts", "locations",
+           "about", "help", "login", "signup", "home", "i", "hashtag"}
+    handle, ctype = None, "profile"
+
+    def _first_hashtag():
+        return ("#" + parts[1]) if len(parts) > 1 else None
+
+    if platform == "LinkedIn":
+        if parts and plow[0] in ("company", "in", "school", "showcase") and len(parts) > 1:
+            handle = parts[1]
+        elif parts and plow[0] == "posts":
+            ctype = "post"
+            handle = parts[1].split("_")[0] if len(parts) > 1 else None
+        elif parts and plow[0] == "pulse":
+            ctype = "article"
+        elif parts and plow[0] in NAV:
+            ctype = "other"
+        elif parts:
+            handle = parts[0]
+    elif platform == "YouTube":
+        if parts and parts[0].startswith("@"):
+            handle = parts[0]
+        elif parts and plow[0] in ("channel", "c", "user") and len(parts) > 1:
+            handle = parts[1]
+        elif parts and plow[0] in ("watch", "shorts", "embed", "live"):
+            ctype = "video"
+        elif parts and plow[0] == "hashtag":
+            ctype, handle = "hashtag", _first_hashtag()
+        elif parts and plow[0] in NAV:
+            ctype = "other"
+        elif parts:
+            handle = parts[0]
+    elif platform == "Reddit":
+        if len(parts) >= 2 and plow[0] in ("r", "u", "user"):
+            handle = ("r/" if plow[0] == "r" else "u/") + parts[1]
+            if "comments" in plow:
+                ctype = "post"
+        elif parts and plow[0] in NAV:
+            ctype = "other"
+    else:  # Instagram, X, Twitter, Facebook, TikTok, Threads, Pinterest, Telegram
+        if parts:
+            first = parts[0].lstrip("@")
+            fl = first.lower()
+            if fl == "hashtag":
+                ctype, handle = "hashtag", _first_hashtag()
+            elif fl in NAV:
+                ctype = "other"
+            elif fl in POST or first.endswith(".php"):
+                ctype = "post"
+            else:
+                handle = parts[0] if parts[0].startswith("@") else first
+                if len(parts) > 1 and plow[1] in POST:
+                    ctype = "post"
+    if not handle:
+        if platform == "YouTube" and "v=" in (p.query or ""):
+            handle = parse_qs(p.query).get("v", [None])[0] or None
+        if not handle:
+            meaningful = [x for x in parts
+                          if x.lower() not in POST and x.lower() not in NAV
+                          and not x.endswith(".php")]
+            handle = (meaningful[-1] if meaningful else (parts[-1] if parts else p.netloc))
+    return (handle or p.netloc)[:80], ctype
+
+
 def _build_social_finding(res, tenant, brand, brand_terms, query, engine_label):
     """Build a single Search/Dorking finding dict from a raw search result, or
     None if it isn't on a tracked social host or fails brand-relevance."""
@@ -845,12 +940,14 @@ def _build_social_finding(res, tenant, brand, brand_terms, query, engine_label):
     hay = _norm(title + " " + snippet + " " + url)
     if not any(term in hay for term in brand_terms):
         return None
-    handle = url.rstrip("/").split("/")[-1][:60] or url
+    handle, content_type = _extract_handle(url, platform)
     low = (title + snippet + url).lower()
     conf, classification, vsignals = impersonation_assessment(
         tenant, platform, handle, title, snippet, url, category)
     score = max(65, conf) if category == "Data Exposure" else conf
     score = min(max(score, 10), 100)
+    # a clean account name: prefer the handle for profiles, else the page title
+    account_name = handle if content_type == "profile" else (title[:100] or handle)
     return {
         "module": module, "category": category, "source": "Search/Dorking",
         "platform": platform, "title": title[:180], "url": url, "domain": host,
@@ -858,14 +955,14 @@ def _build_social_finding(res, tenant, brand, brand_terms, query, engine_label):
         "evidence": {"query": query, "snippet": snippet, "engine": engine_label,
                      "matched_brand": brand, "verification_signals": vsignals},
         "entities": {
-            "account_name": title[:100], "username": handle, "display_name": title[:80],
-            "description": snippet, "profile_url": url,
+            "account_name": account_name, "username": handle, "display_name": title[:80],
+            "description": snippet, "profile_url": url, "content_type": content_type,
             "account_type": ("official" if any(w in low for w in ["official", "verified"]) else "unverified"),
             "impersonation_confidence": conf, "impersonation_classification": classification,
             "keyword": brand, "comments": "Full comment threads require a connected platform API",
             "screenshot_url": None,
         },
-        "dedupe_key": _dedupe_key(tenant["id"], module, url),
+        "dedupe_key": _dedupe_key(tenant["id"], module, _canonical_url(url)),
     }
 
 
@@ -905,9 +1002,9 @@ _SERPER_KEYWORDS = {
 
 
 def collect_search_dork(tenant, platforms=None, max_per=25, max_pages=4,
-                        min_per_platform=5, max_topup=8, serper_pages=8, min_total=15):
+                        min_per_platform=5, max_topup=8, serper_pages=13, min_total=15):
     t0 = time.time()
-    deadline = t0 + 220  # overall budget; run is scheduled in the background
+    deadline = t0 + 300  # overall budget; run is scheduled in the background
     findings, error, status = [], None, "healthy"
     any_backend_ok = False
     brands = [b for b in (tenant.get("brand_names") or [tenant.get("name")]) if b]
@@ -1386,8 +1483,21 @@ def analyze_domain(domain: str):
 # ===========================================================================
 # Screenshot capture (Playwright headless) for social / web findings
 # ===========================================================================
+def _is_blank_png(png_bytes):
+    """True if the PNG is a near-uniform (blank/white) image — e.g. a JS SPA that
+    never rendered — so we don't store a useless capture."""
+    try:
+        from PIL import Image
+        import io
+        img = Image.open(io.BytesIO(png_bytes)).convert("L")
+        lo, hi = img.getextrema()
+        return (hi - lo) < 12
+    except Exception:
+        return False
+
+
 def capture_screenshot(url: str):
-    """Return PNG bytes of the given public URL, or None on failure."""
+    """Return PNG bytes of the given public URL, or None on failure/blank page."""
     import os
     os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "/pw-browsers")
     try:
@@ -1398,8 +1508,14 @@ def capture_screenshot(url: str):
                 page = browser.new_page(viewport={"width": 1280, "height": 900},
                                         user_agent=UA)
                 page.goto(url, wait_until="domcontentloaded", timeout=25000)
-                page.wait_for_timeout(2500)
+                try:
+                    page.wait_for_load_state("networkidle", timeout=8000)
+                except Exception:
+                    pass
+                page.wait_for_timeout(3500)
                 png = page.screenshot(full_page=False, type="png")
+                if _is_blank_png(png):
+                    return None
                 return png
             finally:
                 browser.close()
